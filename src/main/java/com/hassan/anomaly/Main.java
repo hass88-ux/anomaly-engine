@@ -8,7 +8,7 @@ public class Main {
 
     public static void main(String[] args) {
         List<Transaction> all = new DataGenerator(42).generate(400, 30);
-        Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
+        Rule rule = new VelocityRule(3, Duration.ofMinutes(3));
         ConfusionMatrix matrix = new ConfusionMatrix();
 
         List<Transaction> seen = new ArrayList<>();
