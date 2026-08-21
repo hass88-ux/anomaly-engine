@@ -8,5 +8,6 @@ public record Transaction(
         String accountId,
         Instant occurredAt,
         BigDecimal amount,
-        String country
+        String country,
+        boolean isFraud
 ) {}
