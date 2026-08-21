@@ -8,9 +8,9 @@ Combining two rules with complementary blind spots raises recall from 0.30 to 0.
 at a cost of 0.03 precision.
 
 ## Status
-In progress. Engine, metrics, data generator, two rule types, and combined
-evaluation implemented. Tests, additional rule types, a REST API, and a tuning UI
-to follow.
+In progress. Engine, metrics, data generator, two rule types, combined evaluation,
+and unit tests implemented. Additional rule types, a REST API, and a tuning UI to
+follow.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot
@@ -154,76 +154,13 @@ account, where the amount rule stays silent by design.
 ## Design notes
 - Rules sit behind a `Rule` interface with parameters injected via constructor, so
   one implementation runs under many configurations. Every result above required no
-  code changes beyond constructor arguments, and combining rules required no
-  changes to either rule.
-- The replay loop evaluates every rule on every transaction rather than
-  short-circuiting once one fires. This is wasted work when only a boolean verdict
-  is needed, but it is a precondition for per-rule attribution — knowing *which*
-  rule caught a transaction.
-- The amount rule uses a **per-account** baseline rather than a global one. A global
-  average would judge a customer who normally spends £15 and one who normally
-  spends £200 by the same yardstick, flagging everything from the second and
-  nothing wrong with the first.
-- Deviation is checked in both directions. Instinct says fraud means large amounts,
-  but card testing is anomalous on the *low* side — small probe transactions
-  verifying a stolen card is live.
-- The amount rule stays silent below a minimum history threshold. A rule firing
-  confidently on two data points is detecting sparse data, not anomalies.
-- `BigDecimal` is used for storing and summing money, but converted to `double` for
-  computing means. Rounding error accumulates when summing balances; it is
-  irrelevant when asking whether a value is roughly 4x an average.
-- The replay loop appends each transaction to history *after* evaluating it, so no
-  rule can see the future. Reversing those two lines would inflate every metric in
-  this README.
-- Rules never read the `isFraud` label. Scoring happens outside the engine, in the
-  replay loop. Nothing in the language enforces this yet; making it structural is a
-  planned change.
-- Generated transactions are sorted chronologically before replay — accounts are
-  built one at a time, so unsorted data would place future events in a
-  transaction's history.
-  
-## Tests
-
-Nine unit tests across both rule types, running in ~50ms. Speed comes from the
-rules having no framework dependencies — they are plain Java operating on lists,
-so tests need no application context.
-
-The tests pin behaviour that would otherwise silently change:
-
-- **Threshold boundaries from both sides.** Velocity fires at 3 priors and stays
-  silent at 2. A test that only checks the firing case would pass against a rule
-  that flags everything.
-- **The account filter**, on both rules. Removing it turns velocity into a global
-  transaction counter and gives the amount rule a global baseline — both would
-  still run, produce plausible numbers, and be wrong.
-- **The time window.** Without it, velocity counts an account's entire history and
-  flags anyone who has ever transacted more than N times.
-- **Bidirectional deviation.** Both the large-amount and small-amount cases are
-  asserted, so an implementation that only checks the upper bound fails — and it
-  is the lower bound that catches card testing.
-- **The minimum-history guard.** A £5,000 transaction against a £50 baseline is
-  asserted *not* to fire when only 3 priors exist. This pins a deliberate design
-  decision rather than an observed behaviour: removing the guard would shift every
-  metric in this README with nothing to signal it.
-
-Each test isolates one failure mode, so a red test names what broke rather than
-only that something did. The suite was verified by deliberately removing the
-account filter and confirming exactly one test failed.
-
-## Known limitations
-- Rule evaluation is O(n²): full history is scanned for every transaction, for
-  every rule. Acceptable at ~18k transactions, not beyond. A per-account sliding
-  window with eviction is the fix.
-- Alerts are not attributed to the rule that raised them, so per-rule breakdowns
-  are inferred rather than measured.
-- Legitimate burst behaviour is modelled by a single fixed pattern, which overstates
-  velocity precision.
-- Only two attack shapes are modelled. Geographic and merchant-category anomalies
-  are unimplemented.
-
-
-## Stack
-Java 21, Maven. Spring Boot, MySQL, and a React tuning UI planned.
-
-## Running
-Clone, import as a Maven project, run `com.hassan.anomaly.Main`.
+  code changes beyond constructor arguments, and combining rules required no changes
+  to either rule.
+- **Rules cannot read the fraud label — this is enforced by the type system, not by
+  convention.** `Transaction` carries `isFraud`; rules receive a `TransactionView`,
+  which does not have the field. The replay loop strips the label before rules see
+  the data and reads it only when scoring. Discipline alone would not be enough: a
+  rule that peeks at the label scores perfectly and proves nothing, and the failure
+  is invisible because the output looks excellent. Making it a compile error removes
+  the possibility rather than warning against it.
+- The replay loop appends each

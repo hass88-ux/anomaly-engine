@@ -19,10 +19,10 @@ public class AmountOutlierRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(Transaction txn, List<Transaction> history) {
+    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
         List<BigDecimal> amounts = history.stream()
                 .filter(t -> t.accountId().equals(txn.accountId()))
-                .map(Transaction::amount)
+                .map(TransactionView::amount)
                 .toList();
 
         if (amounts.size() < minimumHistory) {

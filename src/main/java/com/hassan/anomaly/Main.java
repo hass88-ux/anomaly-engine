@@ -15,17 +15,20 @@ public class Main {
         );
 
         ConfusionMatrix matrix = new ConfusionMatrix();
-        List<Transaction> seen = new ArrayList<>();
+        List<TransactionView> seen = new ArrayList<>();
 
         for (Transaction txn : all) {
+            TransactionView view = TransactionView.of(txn);
+
             boolean flagged = false;
             for (Rule rule : rules) {
-                if (rule.isSuspicious(txn, seen)) {
+                if (rule.isSuspicious(view, seen)) {
                     flagged = true;
                 }
             }
+
             matrix.record(flagged, txn.isFraud());
-            seen.add(txn);
+            seen.add(view);
         }
 
         long fraudCount = all.stream().filter(Transaction::isFraud).count();

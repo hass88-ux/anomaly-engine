@@ -20,7 +20,7 @@ public class VelocityRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(Transaction txn, List<Transaction> history) {
+    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
         Instant cutoff = txn.occurredAt().minus(window);
         long recent = history.stream()
                 .filter(t -> t.accountId().equals(txn.accountId()))

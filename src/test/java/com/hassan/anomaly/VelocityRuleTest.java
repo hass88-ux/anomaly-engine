@@ -14,15 +14,15 @@ class VelocityRuleTest {
 
     private static final Instant T0 = Instant.parse("2026-01-01T00:00:00Z");
 
-    private Transaction txn(String id, String account, long secondsOffset) {
-        return new Transaction(id, account, T0.plusSeconds(secondsOffset),
-                new BigDecimal("50.00"), "CA", false);
+    private TransactionView txn(String id, String account, long secondsOffset) {
+        return new TransactionView(id, account, T0.plusSeconds(secondsOffset),
+                new BigDecimal("50.00"), "CA");
     }
 
     @Test
     void firesWhenThresholdMet() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<Transaction> history = List.of(
+        List<TransactionView> history = List.of(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60),
                 txn("c", "acc-1", 120));
@@ -33,7 +33,7 @@ class VelocityRuleTest {
     @Test
     void staysSilentBelowThreshold() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<Transaction> history = List.of(
+        List<TransactionView> history = List.of(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60));
 
@@ -43,7 +43,7 @@ class VelocityRuleTest {
     @Test
     void ignoresOtherAccounts() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<Transaction> history = List.of(
+        List<TransactionView> history = List.of(
                 txn("a", "acc-2", 0),
                 txn("b", "acc-2", 60),
                 txn("c", "acc-2", 120));
@@ -54,7 +54,7 @@ class VelocityRuleTest {
     @Test
     void ignoresTransactionsOutsideWindow() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<Transaction> history = List.of(
+        List<TransactionView> history = List.of(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60),
                 txn("c", "acc-1", 120));

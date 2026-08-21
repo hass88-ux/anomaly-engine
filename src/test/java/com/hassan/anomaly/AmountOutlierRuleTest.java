@@ -14,13 +14,13 @@ class AmountOutlierRuleTest {
 
     private static final Instant T0 = Instant.parse("2026-01-01T00:00:00Z");
 
-    private Transaction txn(String account, String amount, long secondsOffset) {
-        return new Transaction("id" + secondsOffset, account,
-                T0.plusSeconds(secondsOffset), new BigDecimal(amount), "CA", false);
+    private TransactionView txn(String account, String amount, long secondsOffset) {
+        return new TransactionView("id" + secondsOffset, account,
+                T0.plusSeconds(secondsOffset), new BigDecimal(amount), "CA");
     }
 
-    private List<Transaction> baselineOf(String account, String amount, int count) {
-        List<Transaction> out = new ArrayList<>();
+    private List<TransactionView> baselineOf(String account, String amount, int count) {
+        List<TransactionView> out = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             out.add(txn(account, amount, i * 60L));
         }
@@ -30,7 +30,7 @@ class AmountOutlierRuleTest {
     @Test
     void flagsUnusuallyLargeAmount() {
         Rule rule = new AmountOutlierRule(4.0, 5);
-        List<Transaction> history = baselineOf("acc-1", "50.00", 5);
+        List<TransactionView> history = baselineOf("acc-1", "50.00", 5);
 
         assertTrue(rule.isSuspicious(txn("acc-1", "500.00", 600), history));
     }
@@ -38,7 +38,7 @@ class AmountOutlierRuleTest {
     @Test
     void flagsUnusuallySmallAmount() {
         Rule rule = new AmountOutlierRule(4.0, 5);
-        List<Transaction> history = baselineOf("acc-1", "50.00", 5);
+        List<TransactionView> history = baselineOf("acc-1", "50.00", 5);
 
         assertTrue(rule.isSuspicious(txn("acc-1", "2.00", 600), history));
     }
@@ -46,7 +46,7 @@ class AmountOutlierRuleTest {
     @Test
     void allowsNormalAmount() {
         Rule rule = new AmountOutlierRule(4.0, 5);
-        List<Transaction> history = baselineOf("acc-1", "50.00", 5);
+        List<TransactionView> history = baselineOf("acc-1", "50.00", 5);
 
         assertFalse(rule.isSuspicious(txn("acc-1", "60.00", 600), history));
     }
@@ -54,7 +54,7 @@ class AmountOutlierRuleTest {
     @Test
     void staysSilentBelowMinimumHistory() {
         Rule rule = new AmountOutlierRule(4.0, 5);
-        List<Transaction> history = baselineOf("acc-1", "50.00", 3);
+        List<TransactionView> history = baselineOf("acc-1", "50.00", 3);
 
         assertFalse(rule.isSuspicious(txn("acc-1", "5000.00", 600), history));
     }
@@ -62,7 +62,7 @@ class AmountOutlierRuleTest {
     @Test
     void ignoresOtherAccountsWhenBuildingBaseline() {
         Rule rule = new AmountOutlierRule(4.0, 5);
-        List<Transaction> history = baselineOf("acc-2", "50.00", 5);
+        List<TransactionView> history = baselineOf("acc-2", "50.00", 5);
 
         assertFalse(rule.isSuspicious(txn("acc-1", "500.00", 600), history));
     }
