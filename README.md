@@ -181,6 +181,34 @@ account, where the amount rule stays silent by design.
 - Generated transactions are sorted chronologically before replay — accounts are
   built one at a time, so unsorted data would place future events in a
   transaction's history.
+  
+## Tests
+
+Nine unit tests across both rule types, running in ~50ms. Speed comes from the
+rules having no framework dependencies — they are plain Java operating on lists,
+so tests need no application context.
+
+The tests pin behaviour that would otherwise silently change:
+
+- **Threshold boundaries from both sides.** Velocity fires at 3 priors and stays
+  silent at 2. A test that only checks the firing case would pass against a rule
+  that flags everything.
+- **The account filter**, on both rules. Removing it turns velocity into a global
+  transaction counter and gives the amount rule a global baseline — both would
+  still run, produce plausible numbers, and be wrong.
+- **The time window.** Without it, velocity counts an account's entire history and
+  flags anyone who has ever transacted more than N times.
+- **Bidirectional deviation.** Both the large-amount and small-amount cases are
+  asserted, so an implementation that only checks the upper bound fails — and it
+  is the lower bound that catches card testing.
+- **The minimum-history guard.** A £5,000 transaction against a £50 baseline is
+  asserted *not* to fire when only 3 priors exist. This pins a deliberate design
+  decision rather than an observed behaviour: removing the guard would shift every
+  metric in this README with nothing to signal it.
+
+Each test isolates one failure mode, so a red test names what broke rather than
+only that something did. The suite was verified by deliberately removing the
+account filter and confirming exactly one test failed.
 
 ## Known limitations
 - Rule evaluation is O(n²): full history is scanned for every transaction, for
@@ -192,7 +220,7 @@ account, where the amount rule stays silent by design.
   velocity precision.
 - Only two attack shapes are modelled. Geographic and merchant-category anomalies
   are unimplemented.
-- No automated tests.
+
 
 ## Stack
 Java 21, Maven. Spring Boot, MySQL, and a React tuning UI planned.
