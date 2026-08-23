@@ -4,27 +4,28 @@ A rule-based fraud detection engine evaluated against synthetic transaction data
 with planted fraud patterns, so precision and recall can be measured directly
 rather than estimated.
 
-Four planted attack shapes, four rule types, per-pattern detection rates, and a
-documented case where a rule's apparent accuracy turned out to be an artifact of
-the data generator.
+Four planted attack shapes, four rule types, per-pattern detection rates, a 225x
+performance rewrite, and a documented case where a rule's apparent accuracy turned
+out to be an artifact of the data generator.
 
 **Current configuration: precision 0.93, recall 0.70** across 18,450 transactions
-at a 1.04% fraud rate.
+at a 1.04% fraud rate. Replays 148,000 transactions in 600ms.
 
 ## Status
-Engine, data generator, four rule types, combined evaluation, per-rule and
-per-pattern attribution, and 22 unit tests. A REST API and tuning UI are planned.
+Engine complete. Four rule types, combined evaluation, per-rule and per-pattern
+attribution, 22 unit tests, and an account-indexed replay structure. A REST API and
+tuning UI are planned as separate work.
 
 ## Why synthetic data
-Real fraud labels arrive weeks late via chargebacks, so a live system cannot
-measure its own accuracy in the moment. Generating the data means ground truth is
-known at evaluation time and rule changes can be measured rather than guessed at.
-The labels are planted by design — this is a controlled experiment, not a claim
-about real-world fraud rates.
+Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
+its own accuracy in the moment. Generating the data means ground truth is known at
+evaluation time and rule changes can be measured rather than guessed at. The labels
+are planted by design — this is a controlled experiment, not a claim about
+real-world fraud rates.
 
 The dataset is seeded (`new DataGenerator(42)`), so every run produces identical
-data. Without this, a metric moving between runs could mean an improved rule or
-just a different random draw.
+data. Without this, a metric moving between runs could mean an improved rule or just
+a different random draw.
 
 Pattern frequencies are calibrated to hold the overall fraud rate near 1%, roughly
 in line with published card fraud rates. Because changing any frequency shifts the
@@ -57,8 +58,8 @@ not cosmetic; getting it wrong invalidated an entire set of results (see
 
 ### Per-pattern detection
 
-The most informative table in the project. Aggregate recall hides which attacks are
-caught and which are missed.
+The most informative table here. Aggregate recall hides which attacks are caught and
+which are missed.
 
 | Pattern | Caught | Total | Rate | Caught by |
 |---|---|---|---|---|
@@ -70,13 +71,15 @@ caught and which are missed.
 
 Impossible travel sits at exactly 0.50 by construction: the pattern plants two
 transactions, and the first has no meaningful prior to compare against, so only the
-second can fire. This is a ceiling, not a tuning failure.
+second can fire. This held at exactly 0.50 across all six dataset sizes tested
+(4,687 to 147,950 transactions) — a structural ceiling, not a tuning failure.
 
-Burst is the weakest at 0.52 — the opening transactions of each burst pass before
-enough history accumulates.
+Burst is the weakest at 0.52. The opening transactions of each burst pass before
+enough history accumulates, so the engine catches the tail of an attack rather than
+the head.
 
-The false-positive rate on ordinary transactions is 0.04%. Precision alone hides
-how rare that is.
+The false-positive rate on ordinary transactions is 0.04%. Precision alone hides how
+rare that is.
 
 ### Rule contributions
 
@@ -86,11 +89,15 @@ how rare that is.
 | SpendVelocity(3, 3min, x6.0) | 40 | 1 | 0.98 |
 | GeoImpossibility(900 km/h) | 11 | 1 | 0.92 |
 
-**The rules are perfectly disjoint** — no transaction is caught by more than one.
-Each targets a distinct signature: aggregate spend in a window, individual amount
-deviation, and implied travel speed. A burst of four 3x transactions is 12x in
-aggregate but each transaction sits below the 4x individual threshold, so
-`SpendVelocity` and `AmountOutlier` do not collide despite both reading amounts.
+**The rules are near-disjoint.** At 18,450 transactions no transaction is caught by
+more than one rule. At 147,950, 9 of 1,435 caught transactions fire two rules
+(SpendVelocity and AmountOutlier) — 0.6%. The clean partition at smaller sizes is a
+property of the sample, not a guarantee.
+
+Each rule targets a distinct signature: aggregate spend in a window, individual
+amount deviation, and implied travel speed. A burst of four 3x transactions is 12x in
+aggregate but each transaction sits below the 4x individual threshold, which is why
+`SpendVelocity` and `AmountOutlier` rarely collide despite both reading amounts.
 
 ### Spend velocity: replacing count with spend
 
@@ -100,7 +107,7 @@ rule fired on 51 legitimate transactions against 45 fraudulent ones — precisio
 
 Tempo could not separate the populations: bursts are 40s apart, trips 45s. Count
 could, but only because trips contain exactly 4 transactions — tuning to that is
-brittle, and fails the moment a real shopper makes five purchases.
+brittle and fails the moment a real shopper makes five purchases.
 
 Amount was the robust separator. Bursts run 2–5x the account baseline, trips
 0.4–1.4x, and those distributions barely touch. `SpendVelocityRule` requires both a
@@ -123,10 +130,13 @@ rule — with 12 false positives against 51. Same detection, a quarter of the co
 The fix was not a better threshold. It was a rule that stopped discarding
 information it already held.
 
+`VelocityRule` is retained in the codebase, marked superseded, so this comparison
+remains verifiable rather than merely asserted.
+
 ### Amount outlier tuning
 
 *Measured against an earlier generator configuration. Retained because the argument
-holds; the absolute figures do not correspond to the current dataset.*
+holds; absolute figures do not correspond to the current dataset.*
 
 | Rule config | Precision | Recall |
 |---|---|---|
@@ -144,71 +154,93 @@ Whether that trade is worth making depends on the cost of a missed fraud against
 cost of an investigation — a business decision, not an engineering one. The engine's
 job is to make the trade-off legible.
 
-### Original velocity rule tuning
+## Performance
 
-*Superseded by `SpendVelocityRule`. Measured against an earlier generator
-configuration and a looser decoy.*
+The replay loop originally passed every rule a flat `List` of all prior
+transactions. Each rule then filtered that list down to one account. With 800
+accounts, that meant scanning ~37,000 records to find the ~46 that mattered, three
+times per transaction — O(n²), and worse in practice as memory pressure compounded.
 
-| Rule config | Precision | Recall |
-|---|---|---|
-| Velocity(3, 10min) | 0.54 | 0.23 |
-| Velocity(4, 10min) | 1.00 | 0.15 |
-| Velocity(3, 3min) | 1.00 | 0.23 |
-| Velocity(2, 2min) | 1.00 | 0.30 |
+Replacing the flat list with `AccountHistory`, a `Map<String, List<TransactionView>>`
+keyed by account, turned "this account's history" from a scan into a lookup.
 
-Config 2 reaches precision 1.00 only because shopping trips contained exactly 4
-transactions, making a threshold of 4 structurally unreachable for them — an
-artifact of the fixture, not a property of the rule. Config 3 excluded decoys by
-tempo instead, which was more defensible until the decoy was tightened and tempo
-stopped separating anything.
+| Transactions | Before | After | Speedup |
+|---|---|---|---|
+| 4,687 | 633ms | 91ms | 7x |
+| 9,352 | 2,780ms | 127ms | 22x |
+| 18,450 | 8,920ms | 199ms | 45x |
+| 36,935 | 68,546ms | 304ms | 225x |
+| 74,033 | ~4.5 min* | 455ms | — |
+| 147,950 | ~18 min* | 600ms | — |
+
+*Extrapolated from the measured quadratic curve, not run. The original implementation
+was not benchmarked at these sizes because the runtime made it impractical — which is
+itself the point.*
+
+Two further gains came from the structure rather than the map. Because the replay
+loop feeds transactions chronologically, each account's list is inherently sorted, so
+`since(accountId, cutoff)` walks backwards from the end and stops at the cutoff —
+typically a handful of steps for a 3-minute window — and returns a `subList` view
+rather than a copy. `GeoImpossibilityRule` previously streamed the full history with
+`max(Comparator.comparing(...))` to find the most recent transaction; it is now a
+single array index.
+
+Every metric was identical before and after, down to individual rule firing counts,
+across all six dataset sizes. The 22-test suite was what made that claim checkable
+rather than a matter of eyeballing console output.
 
 ## Corrections
 
-Three claims in earlier versions of this document were wrong. They are recorded
-rather than removed, because the corrections are the more useful content.
+Four claims in earlier versions of this document were wrong. They are recorded rather
+than removed, because the corrections are the more useful content.
 
 **Geo-impossibility precision was an artifact.** The rule initially scored 37 true
-positives with 2 false positives and appeared to catch burst transactions as a
-bonus. It did not. Positional jitter was being applied per transaction, so six burst
-transactions 40 seconds apart sat up to 20km from each other — implying impossible
-speeds. Holding location fixed within a burst dropped the rule to 11 true positives
-and 1 false positive: exactly the impossible-travel pattern it was designed for, and
-nothing else. The apparent bonus detection was the generator, not the rule.
+positives with 2 false positives and appeared to catch burst transactions as a bonus.
+It did not. Positional jitter was applied per transaction, so six burst transactions
+40 seconds apart sat up to 20km from each other — implying impossible speeds. Holding
+location fixed within a burst dropped the rule to 11 true positives and 1 false
+positive: exactly the pattern it was designed for, and nothing else. The apparent
+bonus detection was the generator, not the rule.
 
-**A hypothesis about rule overlap was half right.** With three rules, 18
-transactions fired more than one. The proposed explanation was that geo overlapped
-with velocity on bursts. Attribution showed 10 velocity+geo and 8 amount+geo —
-and the reasoning that had specifically ruled out amount+geo (card testing's
-11-hour gaps make travel trivially possible) was wrong about which transactions
-were involved. Both groups were bursts, split by whether velocity had accumulated
-enough priors. Once the location artifact was fixed, all 18 overlaps disappeared.
+**A hypothesis about rule overlap was half right.** With three rules, 18 transactions
+fired more than one. The proposed explanation was that geo overlapped with velocity on
+bursts. Attribution showed 10 velocity+geo and 8 amount+geo — and the reasoning that
+had specifically ruled out amount+geo was wrong about which transactions were
+involved. Both groups were bursts, split by whether velocity had accumulated enough
+priors. Once the location artifact was fixed, all 18 overlaps disappeared.
 
 **The shopping-trip decoy tested nothing for several runs.** It was spaced 2 minutes
-apart against a 3-minute window, so at most one prior ever fell inside — no rule
-could fire on it. Reported precision of 0.99 was measured against a decoy population
-that was structurally invisible. Tightening to 45 seconds dropped precision to 0.65
-and exposed the count-based velocity rule's real false-positive rate.
+apart against a 3-minute window, so at most one prior ever fell inside — no rule could
+fire on it. Reported precision of 0.99 was measured against a decoy population that
+was structurally invisible. Tightening to 45 seconds dropped precision to 0.65 and
+exposed the count-based velocity rule's real false-positive rate.
 
-The common thread: **every suspiciously good result in this project turned out to be
-a property of the test data rather than the detection logic.** Precision above 0.95
-was, each time, a signal to inspect the generator.
+**"Perfectly disjoint" was a small-sample claim.** Zero overlap held at 18,450
+transactions and was stated as a property of the rules. At 147,950 transactions, 9
+overlaps appear. The rules are near-disjoint, not disjoint.
+
+The common thread: **every suspiciously good result in this project turned out to be a
+property of the test data rather than the detection logic.** Precision above 0.95 was,
+each time, a signal to inspect the generator.
 
 ## Design notes
-- Rules sit behind a `Rule` interface with parameters injected via constructor.
-  Adding the third and fourth rules required no change to the replay loop, the
-  confusion matrix, the attribution report, or any other rule — one more entry in a
-  list.
+- Rules sit behind a `Rule` interface with parameters injected via constructor. Adding
+  the third and fourth rules required no change to the replay loop, the confusion
+  matrix, the attribution report, or any other rule — one more entry in a list.
 - **Rules cannot read the fraud label — enforced by the type system, not by
   convention.** `Transaction` carries `isFraud` and `fraudPattern`; rules receive a
-  `TransactionView`, which has neither. The replay loop strips the labels before
-  rules see the data and reads them only when scoring. A rule that peeks at the
-  label scores perfectly and proves nothing, and the failure is invisible because
-  the output looks excellent. Making it a compile error removes the possibility.
+  `TransactionView`, which has neither. The replay loop strips the labels before rules
+  see the data and reads them only when scoring. A rule that peeks at the label scores
+  perfectly and proves nothing, and the failure is invisible because the output looks
+  excellent. Making it a compile error removes the possibility.
 - The replay loop appends each transaction to history *after* evaluating it, so no
   rule can see the future. Reversing those two lines would inflate every metric here.
 - The loop evaluates every rule on every transaction rather than short-circuiting.
   Wasted work for a boolean verdict, but a precondition for the attribution that
   produced most of the findings above.
+- `AccountHistory` returns unmodifiable views. Rules receive history and must not
+  mutate it — the same instinct as `TransactionView`, making the wrong thing
+  impossible rather than discouraged.
 - `SpendVelocityRule` excludes the transaction under judgment from the account
   baseline while including it in the window total. Folding it into its own baseline
   would dilute the signal being tested.
@@ -217,12 +249,12 @@ was, each time, a signal to inspect the generator.
   yardstick.
 - Amount deviation is checked in both directions. Instinct says fraud means large
   amounts, but card testing is anomalous on the *low* side.
-- `GeoImpossibilityRule` compares against the immediately previous transaction, not
-  a window. Implied speed is meaningful only between consecutive events. It uses
+- `GeoImpossibilityRule` compares against the immediately previous transaction, not a
+  window. Implied speed is meaningful only between consecutive events. It uses
   haversine rather than flat-plane distance — at Canadian latitudes a degree of
   longitude is roughly 75km against 111km for latitude.
-- The geo rule guards against zero elapsed time. Identical timestamps would divide
-  by zero, produce `Infinity`, and flag every simultaneous pair.
+- The geo rule guards against zero elapsed time. Identical timestamps would divide by
+  zero, produce `Infinity`, and flag every simultaneous pair.
 - `BigDecimal` for storing and summing money, converted to `double` for computing
   means. Rounding error accumulates when summing balances; it is irrelevant when
   asking whether a value is roughly 4x an average.
@@ -231,55 +263,62 @@ was, each time, a signal to inspect the generator.
 
 ## Tests
 
-22 unit tests across all four rules, running in well under a second. The rules have
-no framework dependencies — plain Java over lists — so tests need no application
-context.
+22 unit tests across all four rules, running in well under a second. The rules have no
+framework dependencies — plain Java over an in-memory structure — so tests need no
+application context.
 
 What they pin:
 
-- **Threshold boundaries from both sides**, so a test suite cannot pass against a
-  rule that flags everything.
-- **The account filter on every rule.** Removing it turns velocity into a global
-  counter and gives the amount rule a global baseline — both would still run and
-  produce plausible, wrong numbers.
-- **Bidirectional amount deviation.** An implementation checking only the upper
-  bound fails, and it is the lower bound that catches card testing.
+- **Threshold boundaries from both sides**, so the suite cannot pass against a rule
+  that flags everything.
+- **Account scoping on every rule.** Since the `AccountHistory` refactor this is
+  partly guaranteed by the structure, but a wrong `accountId` would still break it.
+- **Bidirectional amount deviation.** An implementation checking only the upper bound
+  fails, and it is the lower bound that catches card testing.
 - **Minimum-history and minimum-count guards**, pinning deliberate design decisions
   rather than observed behaviour.
 - **Geo compares against the most recent prior, not the oldest.** An account that
-  travels Vancouver→Toronto overnight then moves across Toronto is legitimate
-  against the recent prior and impossible against the oldest.
+  travels Vancouver→Toronto overnight then moves across Toronto is legitimate against
+  the recent prior and impossible against the oldest.
 - **The zero-elapsed-time guard.**
 - **Spend velocity's core justification:** two tests with identical tempo — four
-  transactions 40s apart — where one is 3x baseline and one is 0.9x. One fires, one
+  transactions ~40s apart — where one is 3x baseline and one is 0.9x. One fires, one
   does not. The original count-based rule fires on both.
 
 Each test isolates one failure mode, so a red test names what broke. The suite was
-verified by deliberately removing the account filter and confirming exactly one test
+verified by deliberately removing an account filter and confirming exactly one test
 failed.
 
-The `TransactionView` refactor was validated against it: the change touched the
-interface, every rule, the replay loop, and every test class, and combined metrics
+It has since caught two refactors' worth of regressions in advance: the
+`TransactionView` change and the `AccountHistory` rewrite both touched the interface,
+every rule, the replay loop, and every test class, and in both cases combined metrics
 came out identical afterwards.
 
 ## Known limitations
-- Rule evaluation is O(n²): full history is scanned for every transaction, for every
-  rule. Acceptable at ~18k transactions, not beyond. A per-account sliding window
-  with eviction is the fix.
+- **`AccountHistory.since` assumes chronological insertion order** and walks backwards
+  from the end of each account's list. The replay loop guarantees this, but nothing
+  enforces it. This surfaced while updating the tests: a baseline built in descending
+  order silently read the wrong end. The optimisation traded a rule that filtered
+  defensively for one that trusts its input — faster, and more fragile.
 - Burst recall is 0.52. The opening transactions of each burst pass before enough
   history accumulates, and no current rule addresses the head of an attack.
 - The replay loop, confusion matrix, attribution report, and data generator are
   untested. Coverage is limited to rule logic.
-- Legitimate behaviour is modelled by two patterns (normal spending and shopping
-  trips). Real traffic contains checkout retries, split payments, and subscription
-  batches that this dataset does not model, so precision would degrade against
-  production data.
-- Merchant-category anomalies are unimplemented.
+- Legitimate behaviour is modelled by two patterns. Real traffic contains checkout
+  retries, split payments, and subscription batches that this dataset does not model,
+  so precision would degrade against production data.
+- Merchant-category anomalies are unimplemented. Scope was cut at four rules
+  deliberately: a fifth rule targeting a fifth planted pattern would not have changed
+  any conclusion here.
 - Alert severity is binary. Real systems score confidence and route accordingly.
+- `AccountHistory` holds every transaction in memory. Fine for a bounded replay,
+  unsuitable for an unbounded stream — a production version would evict outside the
+  widest rule window.
 
 ## Stack
-Java 21, Maven, JUnit 5. Spring Boot, MySQL, and a React tuning UI planned.
+Java 21, Maven, JUnit 5.
 
 ## Running
-Clone, import as a Maven project, run `com.hassan.anomaly.Main`. Tests run via
-`mvn test` or through the IDE.
+Clone, import as a Maven project, run `com.hassan.anomaly.Main`. Adjust the `accounts`
+constant at the top of `main` to change dataset size. Tests run via `mvn test` or
+through the IDE.
