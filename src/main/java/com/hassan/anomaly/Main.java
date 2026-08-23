@@ -10,25 +10,27 @@ public class Main {
         List<Transaction> all = new DataGenerator(42).generate(400, 30);
 
         List<Rule> rules = List.of(
-            new VelocityRule(3, Duration.ofMinutes(3)),
-            new AmountOutlierRule(4.0, 5),
-            new GeoImpossibilityRule(900)
-        );
+        	    new SpendVelocityRule(3, Duration.ofMinutes(3), 6.0),
+        	    new AmountOutlierRule(4.0, 5),
+        	    new GeoImpossibilityRule(900)
+        	);
 
         ConfusionMatrix matrix = new ConfusionMatrix();
+        AttributionReport attribution = new AttributionReport();
         List<TransactionView> seen = new ArrayList<>();
 
         for (Transaction txn : all) {
             TransactionView view = TransactionView.of(txn);
 
-            boolean flagged = false;
+            List<String> fired = new ArrayList<>();
             for (Rule rule : rules) {
                 if (rule.isSuspicious(view, seen)) {
-                    flagged = true;
+                    fired.add(rule.name());
                 }
             }
 
-            matrix.record(flagged, txn.isFraud());
+            matrix.record(!fired.isEmpty(), txn.isFraud());
+            attribution.record(fired, txn.isFraud(), txn.fraudPattern());
             seen.add(view);
         }
 
@@ -39,5 +41,6 @@ public class Main {
         System.out.printf("Fraud: %d (%.2f%%)%n",
                 fraudCount, 100.0 * fraudCount / all.size());
         matrix.print();
+        attribution.print();
     }
 }

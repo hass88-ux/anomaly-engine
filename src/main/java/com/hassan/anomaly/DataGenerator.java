@@ -43,7 +43,7 @@ public class DataGenerator {
                             .plus(Duration.ofMinutes(random.nextInt(1440)));
                     out.add(txn(id++, account, when,
                             baseAmount * (0.5 + random.nextDouble()),
-                            jitter(home), false));
+                            jitter(home), false, "NONE"));
                 }
             }
 
@@ -71,10 +71,11 @@ public class DataGenerator {
 
     private List<Transaction> burst(String account, int id, double base, City home) {
         Instant when = randomMoment();
+        double[] location = jitter(home);
         List<Transaction> out = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
             out.add(txn(id + i, account, when.plus(Duration.ofSeconds(40L * i)),
-                    base * (2 + random.nextDouble() * 3), jitter(home), true));
+                    base * (2 + random.nextDouble() * 3), location, true, "BURST"));
         }
         return out;
     }
@@ -84,7 +85,7 @@ public class DataGenerator {
         List<Transaction> out = new ArrayList<>();
         for (int i = 0; i < 8; i++) {
             out.add(txn(id + i, account, when.plus(Duration.ofHours(11L * i)),
-                    1 + random.nextDouble() * 3, jitter(home), true));
+                    1 + random.nextDouble() * 3, jitter(home), true, "CARD_TESTING"));
         }
         return out;
     }
@@ -94,17 +95,18 @@ public class DataGenerator {
         City far = farFrom(home);
         return List.of(
                 txn(id, account, when,
-                        base * (0.5 + random.nextDouble()), jitter(home), true),
+                        base * (0.5 + random.nextDouble()), jitter(home), true, "IMPOSSIBLE_TRAVEL"),
                 txn(id + 1, account, when.plus(Duration.ofMinutes(25)),
-                        base * (0.5 + random.nextDouble()), jitter(far), true));
+                        base * (0.5 + random.nextDouble()), jitter(far), true, "IMPOSSIBLE_TRAVEL"));
     }
 
     private List<Transaction> shoppingTrip(String account, int id, double base, City home) {
         Instant when = randomMoment();
+        double[] location = jitter(home);
         List<Transaction> out = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            out.add(txn(id + i, account, when.plus(Duration.ofMinutes(2L * i)),
-                    base * (0.4 + random.nextDouble()), jitter(home), false));
+            out.add(txn(id + i, account, when.plus(Duration.ofSeconds(45L * i)),
+                    base * (0.4 + random.nextDouble()), location, false, "SHOPPING_TRIP"));
         }
         return out;
     }
@@ -128,9 +130,10 @@ public class DataGenerator {
     }
 
     private Transaction txn(int id, String account, Instant when,
-                            double amount, double[] location, boolean fraud) {
+                            double amount, double[] location,
+                            boolean fraud, String pattern) {
         return new Transaction("t" + id, account, when,
                 BigDecimal.valueOf(Math.round(amount * 100) / 100.0),
-                "CA", location[0], location[1], fraud);
+                "CA", location[0], location[1], fraud, pattern);
     }
 }

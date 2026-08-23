@@ -11,5 +11,6 @@ public record Transaction(
         String country,
         double latitude,
         double longitude,
-        boolean isFraud
+        boolean isFraud,
+        String fraudPattern
 ) {}
