@@ -7,17 +7,21 @@ import java.util.List;
 public class Main {
 
     public static void main(String[] args) {
-        List<Transaction> all = new DataGenerator(42).generate(400, 30);
+        int accounts = 3200;
+
+        List<Transaction> all = new DataGenerator(42).generate(accounts, 30);
 
         List<Rule> rules = List.of(
-        	    new SpendVelocityRule(3, Duration.ofMinutes(3), 6.0),
-        	    new AmountOutlierRule(4.0, 5),
-        	    new GeoImpossibilityRule(900)
-        	);
+            new SpendVelocityRule(3, Duration.ofMinutes(3), 6.0),
+            new AmountOutlierRule(4.0, 5),
+            new GeoImpossibilityRule(900)
+        );
 
         ConfusionMatrix matrix = new ConfusionMatrix();
         AttributionReport attribution = new AttributionReport();
-        List<TransactionView> seen = new ArrayList<>();
+        AccountHistory seen = new AccountHistory();
+
+        long startNanos = System.nanoTime();
 
         for (Transaction txn : all) {
             TransactionView view = TransactionView.of(txn);
@@ -34,12 +38,14 @@ public class Main {
             seen.add(view);
         }
 
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+
         long fraudCount = all.stream().filter(Transaction::isFraud).count();
-        System.out.println("Rules: " + rules.size());
-        rules.forEach(r -> System.out.println("  " + r.name()));
+        System.out.println("Accounts: " + accounts);
         System.out.println("Transactions: " + all.size());
         System.out.printf("Fraud: %d (%.2f%%)%n",
                 fraudCount, 100.0 * fraudCount / all.size());
+        System.out.println("Replay time: " + elapsedMs + " ms");
         matrix.print();
         attribution.print();
     }

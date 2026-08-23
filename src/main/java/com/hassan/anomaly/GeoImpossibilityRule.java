@@ -1,8 +1,6 @@
 package com.hassan.anomaly;
 
 import java.time.Duration;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Optional;
 
 public class GeoImpossibilityRule implements Rule {
@@ -21,10 +19,8 @@ public class GeoImpossibilityRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
-        Optional<TransactionView> previous = history.stream()
-                .filter(t -> t.accountId().equals(txn.accountId()))
-                .max(Comparator.comparing(TransactionView::occurredAt));
+    public boolean isSuspicious(TransactionView txn, AccountHistory history) {
+        Optional<TransactionView> previous = history.mostRecent(txn.accountId());
 
         if (previous.isEmpty()) {
             return false;

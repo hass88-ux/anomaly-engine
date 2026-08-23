@@ -1,6 +1,5 @@
 package com.hassan.anomaly;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 public class AmountOutlierRule implements Rule {
@@ -19,18 +18,15 @@ public class AmountOutlierRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
-        List<BigDecimal> amounts = history.stream()
-                .filter(t -> t.accountId().equals(txn.accountId()))
-                .map(TransactionView::amount)
-                .toList();
+    public boolean isSuspicious(TransactionView txn, AccountHistory history) {
+        List<TransactionView> sameAccount = history.forAccount(txn.accountId());
 
-        if (amounts.size() < minimumHistory) {
+        if (sameAccount.size() < minimumHistory) {
             return false;
         }
 
-        double mean = amounts.stream()
-                .mapToDouble(BigDecimal::doubleValue)
+        double mean = sameAccount.stream()
+                .mapToDouble(t -> t.amount().doubleValue())
                 .average()
                 .orElse(0);
 

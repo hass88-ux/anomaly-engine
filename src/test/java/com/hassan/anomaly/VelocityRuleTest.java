@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -19,10 +18,18 @@ class VelocityRuleTest {
                 new BigDecimal("50.00"), "CA", 43.65, -79.38);
     }
 
+    private AccountHistory historyOf(TransactionView... txns) {
+        AccountHistory history = new AccountHistory();
+        for (TransactionView t : txns) {
+            history.add(t);
+        }
+        return history;
+    }
+
     @Test
     void firesWhenThresholdMet() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<TransactionView> history = List.of(
+        AccountHistory history = historyOf(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60),
                 txn("c", "acc-1", 120));
@@ -33,7 +40,7 @@ class VelocityRuleTest {
     @Test
     void staysSilentBelowThreshold() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<TransactionView> history = List.of(
+        AccountHistory history = historyOf(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60));
 
@@ -43,7 +50,7 @@ class VelocityRuleTest {
     @Test
     void ignoresOtherAccounts() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<TransactionView> history = List.of(
+        AccountHistory history = historyOf(
                 txn("a", "acc-2", 0),
                 txn("b", "acc-2", 60),
                 txn("c", "acc-2", 120));
@@ -54,7 +61,7 @@ class VelocityRuleTest {
     @Test
     void ignoresTransactionsOutsideWindow() {
         Rule rule = new VelocityRule(3, Duration.ofMinutes(10));
-        List<TransactionView> history = List.of(
+        AccountHistory history = historyOf(
                 txn("a", "acc-1", 0),
                 txn("b", "acc-1", 60),
                 txn("c", "acc-1", 120));

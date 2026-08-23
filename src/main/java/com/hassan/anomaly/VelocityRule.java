@@ -4,6 +4,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Superseded by SpendVelocityRule, which counts spend rather than transactions.
+ * Retained so the comparison documented in the README remains verifiable:
+ * this rule fired on 51 legitimate transactions where SpendVelocity fired on 1.
+ */
 public class VelocityRule implements Rule {
 
     private final int maxCount;
@@ -20,12 +25,9 @@ public class VelocityRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
+    public boolean isSuspicious(TransactionView txn, AccountHistory history) {
         Instant cutoff = txn.occurredAt().minus(window);
-        long recent = history.stream()
-                .filter(t -> t.accountId().equals(txn.accountId()))
-                .filter(t -> t.occurredAt().isAfter(cutoff))
-                .count();
-        return recent >= maxCount;
+        List<TransactionView> recent = history.since(txn.accountId(), cutoff);
+        return recent.size() >= maxCount;
     }
 }

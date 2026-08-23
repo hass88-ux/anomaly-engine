@@ -23,20 +23,15 @@ public class SpendVelocityRule implements Rule {
     }
 
     @Override
-    public boolean isSuspicious(TransactionView txn, List<TransactionView> history) {
-        List<TransactionView> sameAccount = history.stream()
-                .filter(t -> t.accountId().equals(txn.accountId()))
-                .toList();
-
+    public boolean isSuspicious(TransactionView txn, AccountHistory history) {
         Instant cutoff = txn.occurredAt().minus(window);
-        List<TransactionView> recent = sameAccount.stream()
-                .filter(t -> t.occurredAt().isAfter(cutoff))
-                .toList();
+        List<TransactionView> recent = history.since(txn.accountId(), cutoff);
 
         if (recent.size() < minCount) {
             return false;
         }
 
+        List<TransactionView> sameAccount = history.forAccount(txn.accountId());
         double accountMean = sameAccount.stream()
                 .mapToDouble(t -> t.amount().doubleValue())
                 .average()
