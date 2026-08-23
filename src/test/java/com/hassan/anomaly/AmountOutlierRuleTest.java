@@ -16,7 +16,7 @@ class AmountOutlierRuleTest {
 
     private TransactionView txn(String account, String amount, long secondsOffset) {
         return new TransactionView("id" + secondsOffset, account,
-                T0.plusSeconds(secondsOffset), new BigDecimal(amount), "CA");
+                T0.plusSeconds(secondsOffset), new BigDecimal(amount), "CA", 43.65, -79.38);
     }
 
     private List<TransactionView> baselineOf(String account, String amount, int count) {

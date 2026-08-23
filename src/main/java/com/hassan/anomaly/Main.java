@@ -11,7 +11,8 @@ public class Main {
 
         List<Rule> rules = List.of(
             new VelocityRule(3, Duration.ofMinutes(3)),
-            new AmountOutlierRule(4.0, 5)
+            new AmountOutlierRule(4.0, 5),
+            new GeoImpossibilityRule(900)
         );
 
         ConfusionMatrix matrix = new ConfusionMatrix();

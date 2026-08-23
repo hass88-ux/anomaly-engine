@@ -8,10 +8,13 @@ public record TransactionView(
         String accountId,
         Instant occurredAt,
         BigDecimal amount,
-        String country
+        String country,
+        double latitude,
+        double longitude
 ) {
     public static TransactionView of(Transaction txn) {
         return new TransactionView(txn.id(), txn.accountId(),
-                txn.occurredAt(), txn.amount(), txn.country());
+                txn.occurredAt(), txn.amount(), txn.country(),
+                txn.latitude(), txn.longitude());
     }
 }

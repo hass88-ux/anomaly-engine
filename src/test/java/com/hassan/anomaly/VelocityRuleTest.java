@@ -16,7 +16,7 @@ class VelocityRuleTest {
 
     private TransactionView txn(String id, String account, long secondsOffset) {
         return new TransactionView(id, account, T0.plusSeconds(secondsOffset),
-                new BigDecimal("50.00"), "CA");
+                new BigDecimal("50.00"), "CA", 43.65, -79.38);
     }
 
     @Test

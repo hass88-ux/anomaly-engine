@@ -9,5 +9,7 @@ public record Transaction(
         Instant occurredAt,
         BigDecimal amount,
         String country,
+        double latitude,
+        double longitude,
         boolean isFraud
 ) {}
