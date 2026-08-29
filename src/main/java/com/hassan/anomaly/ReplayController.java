@@ -1,5 +1,7 @@
 package com.hassan.anomaly;
 
+import jakarta.validation.Valid;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,7 +24,7 @@ public class ReplayController {
     }
 
     @PostMapping
-    public ReplayResult run(@RequestBody ReplayRequest request) {
+    public ReplayResult run(@Valid @RequestBody ReplayRequest request) {
         return replayService.run(request);
     }
 }
