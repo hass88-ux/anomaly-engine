@@ -14,6 +14,11 @@ public class ConfusionMatrix {
         else                                 trueNegatives++;
     }
 
+    public int truePositives() { return truePositives; }
+    public int falsePositives() { return falsePositives; }
+    public int trueNegatives() { return trueNegatives; }
+    public int falseNegatives() { return falseNegatives; }
+
     public double precision() {
         int flagged = truePositives + falsePositives;
         return flagged == 0 ? 0.0 : (double) truePositives / flagged;

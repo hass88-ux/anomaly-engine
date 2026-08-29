@@ -1,8 +1,10 @@
 package com.hassan.anomaly;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 public class AttributionReport {
@@ -39,18 +41,42 @@ public class AttributionReport {
         }
     }
 
+    public Set<String> allRules() {
+        Set<String> rules = new LinkedHashSet<>(firedOnFraud.keySet());
+        rules.addAll(firedOnLegit.keySet());
+        return rules;
+    }
+
+    public int firedOnFraud(String rule) {
+        return firedOnFraud.getOrDefault(rule, 0);
+    }
+
+    public int firedOnLegit(String rule) {
+        return firedOnLegit.getOrDefault(rule, 0);
+    }
+
+    public Set<String> allPatterns() {
+        return patternTotal.keySet();
+    }
+
+    public int patternTotal(String pattern) {
+        return patternTotal.getOrDefault(pattern, 0);
+    }
+
+    public int patternCaught(String pattern) {
+        return patternCaught.getOrDefault(pattern, 0);
+    }
+
+    public Map<String, Integer> patternByRule(String pattern) {
+        return patternByRule.getOrDefault(pattern, Map.of());
+    }
+
     public void print() {
         System.out.println();
         System.out.println("Per-rule firing counts (on fraud / on legitimate)");
-        for (String rule : firedOnFraud.keySet()) {
+        for (String rule : allRules()) {
             System.out.printf("  %-32s %4d / %d%n", rule,
-                    firedOnFraud.getOrDefault(rule, 0),
-                    firedOnLegit.getOrDefault(rule, 0));
-        }
-        for (String rule : firedOnLegit.keySet()) {
-            if (!firedOnFraud.containsKey(rule)) {
-                System.out.printf("  %-32s %4d / %d%n", rule, 0, firedOnLegit.get(rule));
-            }
+                    firedOnFraud(rule), firedOnLegit(rule));
         }
 
         System.out.println();
@@ -67,15 +93,13 @@ public class AttributionReport {
 
         System.out.println();
         System.out.println("Per-pattern detection rate");
-        patternTotal.forEach((pattern, total) -> {
-            int caught = patternCaught.getOrDefault(pattern, 0);
+        for (String pattern : allPatterns()) {
+            int total = patternTotal(pattern);
+            int caught = patternCaught(pattern);
             System.out.printf("  %-20s %4d/%-6d %.2f%n",
                     pattern, caught, total, (double) caught / total);
-            Map<String, Integer> byRule = patternByRule.get(pattern);
-            if (byRule != null) {
-                byRule.forEach((rule, count) ->
-                        System.out.printf("      %-40s %d%n", rule, count));
-            }
-        });
+            patternByRule(pattern).forEach((rule, count) ->
+                    System.out.printf("      %-40s %d%n", rule, count));
+        }
     }
 }
