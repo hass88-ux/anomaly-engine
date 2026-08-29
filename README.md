@@ -13,8 +13,8 @@ rate. Replays 148,000 transactions in 600ms.
 
 ## Status
 Engine complete (tagged `v1-engine`). A REST API wrapping it is in progress on the
-`spring-api` branch: replay endpoints working, input validation and persistence to
-follow.
+`spring-api` branch: replay endpoints and input validation working, persistence and
+authentication to follow.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
@@ -192,7 +192,7 @@ rather than a matter of eyeballing console output.
 
 *In progress on the `spring-api` branch.*
 
-Spring Boot 3.4 wraps the engine. Two endpoints so far:
+Spring Boot 3.4 wraps the engine.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -213,10 +213,10 @@ recompiled run exactly.
 ### API design decisions
 
 - **The engine has no Spring dependencies.** `Rule`, `AccountHistory`,
-  `TransactionView`, and the four rule implementations were not modified at all to
-  add the API. Spring annotations appear only on classes in the web layer. The
-  detection logic could sit behind a CLI, a Kafka consumer, or an HTTP endpoint
-  without changing.
+  `TransactionView`, and the four rule implementations were not modified at all to add
+  the API. Spring annotations appear only on classes in the web layer. The detection
+  logic could sit behind a CLI, a Kafka consumer, or an HTTP endpoint without
+  changing.
 - **Consequently the 22 tests still run without an application context**, in well
   under a second. Annotating a rule class would end that.
 - **`ReplayService` holds no state.** Spring creates one instance shared across all
@@ -224,21 +224,70 @@ recompiled run exactly.
   attribution report, and account history are all local variables constructed per
   call.
 - **Parameters are a request object, not a long argument list.** `ReplayRequest`
-  carries nine tunables with a `defaults()` factory holding the shipped
-  configuration in one place, referenced by both the console harness and the API.
+  carries nine tunables with a `defaults()` factory holding the shipped configuration
+  in one place, referenced by both the console harness and the API.
 - **`ConfusionMatrix` and `AttributionReport` gained getters but return no internal
-  collections.** Handing out a mutable map would let a caller corrupt the counts —
-  the same instinct as the unmodifiable views in `AccountHistory`.
+  collections.** Handing out a mutable map would let a caller corrupt the counts — the
+  same instinct as the unmodifiable views in `AccountHistory`.
 - **Records serialise directly.** `ReplayResult` and its nested `RuleStat` and
-  `PatternStat` are the API response shape; Jackson maps them without any
-  intermediate DTO layer.
+  `PatternStat` are the API response shape; Jackson maps them without any intermediate
+  DTO layer.
+
+### Input validation
+
+Every parameter is bounded, and the bounds are reasoned rather than arbitrary.
+`accounts` caps at 10,000 — roughly 460,000 transactions, a couple of seconds of work.
+`velocityMinCount` has a floor of 2, because a velocity rule requiring one prior
+transaction is not measuring velocity. `amountMinHistory` floors at 1, since a
+baseline needs at least one observation. `seed` is unconstrained; any long is valid.
+
+Validation failures return every violated field at once rather than stopping at the
+first, so a caller fixes five problems in one pass instead of five round trips:
+
+```json
+{
+  "timestamp": "...",
+  "status": 400,
+  "error": "Validation failed",
+  "fieldErrors": {
+    "accounts": "must be less than or equal to 10000",
+    "days": "must be less than or equal to 365",
+    "velocityMinCount": "must be greater than or equal to 2",
+    "velocitySpendMultiplier": "must be greater than 0",
+    "amountMinHistory": "must be greater than or equal to 1"
+  }
+}
+```
+
+### Information disclosure in error responses
+
+Sending a type-mismatched field (`"accounts": "four hundred"`) originally returned a
+full stack trace: package names, class names, line numbers, and the exact Spring and
+Jackson versions in use. Version disclosure is the first step in matching a target
+against known CVEs, so an unhandled parse error was leaking reconnaissance data to
+anyone willing to send a malformed request.
+
+The cause was a development convenience. Spring Boot DevTools sets
+`server.error.include-stacktrace=always`, which is useful locally and exactly the sort
+of default that reaches production unnoticed.
+
+Fixed in two places rather than one:
+
+- An `@ExceptionHandler` for `HttpMessageNotReadableException` returns a generic
+  message that deliberately does not echo Jackson's exception text, since that text
+  contains internal class and package names.
+- `server.error.include-stacktrace=never` and `include-message=never` in
+  `application.properties` cover every exception without a specific handler.
+
+The handler addresses the case that was found; the properties address the cases that
+were not. Relying only on having anticipated every error path is how this class of
+leak survives.
 
 ### Not yet done
-- No input validation. A request with a negative multiplier or an implausible
-  account count is accepted and either produces nonsense or exhausts memory.
-- No persistence. Replay results are computed and discarded, so configurations
-  cannot be compared across sessions.
+- No persistence. Replay results are computed and discarded, so configurations cannot
+  be compared across sessions.
 - No authentication.
+- The web layer has no tests.
 
 ## Corrections
 
@@ -352,8 +401,8 @@ came out identical afterwards.
   defensively for one that trusts its input — faster, and more fragile.
 - Burst recall is 0.52. The opening transactions of each burst pass before enough
   history accumulates, and no current rule addresses the head of an attack.
-- The replay loop, confusion matrix, attribution report, data generator, and the
-  entire web layer are untested. Coverage is limited to rule logic.
+- The replay loop, confusion matrix, attribution report, data generator, and the entire
+  web layer are untested. Coverage is limited to rule logic.
 - Legitimate behaviour is modelled by two patterns. Real traffic contains checkout
   retries, split payments, and subscription batches that this dataset does not model,
   so precision would degrade against production data.
