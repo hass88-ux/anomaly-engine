@@ -1,13 +1,25 @@
 package com.hassan.anomaly;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 @Service
 public class ReplayService {
+
+    private final ReplayRunRepository repository;
+    private final ObjectMapper objectMapper;
+
+    public ReplayService(ReplayRunRepository repository, ObjectMapper objectMapper) {
+        this.repository = repository;
+        this.objectMapper = objectMapper;
+    }
 
     public ReplayResult run(ReplayRequest request) {
         List<Transaction> all = new DataGenerator(request.seed())
@@ -63,11 +75,28 @@ public class ReplayService {
                 })
                 .toList();
 
-        return new ReplayResult(
+        ReplayResult result = new ReplayResult(
                 all.size(), fraudCount, elapsedMs,
                 matrix.truePositives(), matrix.falsePositives(),
                 matrix.trueNegatives(), matrix.falseNegatives(),
                 matrix.precision(), matrix.recall(),
                 ruleStats, patternStats);
+
+        persist(request, result);
+
+        return result;
     }
+
+    private void persist(ReplayRequest request, ReplayResult result) {
+        try {
+            String breakdown = objectMapper.writeValueAsString(
+                    new Breakdown(result.ruleStats(), result.patternStats()));
+            repository.save(new ReplayRun(Instant.now(), request, result, breakdown));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not serialise replay breakdown", e);
+        }
+    }
+
+    private record Breakdown(List<ReplayResult.RuleStat> ruleStats,
+                             List<ReplayResult.PatternStat> patternStats) {}
 }
