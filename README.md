@@ -1,20 +1,19 @@
 # Transaction Anomaly Detection Engine
 
-A rule-based fraud detection engine evaluated against synthetic transaction data
-with planted fraud patterns, so precision and recall can be measured directly
-rather than estimated.
+A rule-based fraud detection engine evaluated against synthetic transaction data with
+planted fraud patterns, so precision and recall can be measured directly rather than
+estimated.
 
 Four planted attack shapes, four rule types, per-pattern detection rates, a 225x
-performance rewrite, and a documented case where a rule's apparent accuracy turned
-out to be an artifact of the data generator.
+performance rewrite, and a documented case where a rule's apparent accuracy turned out
+to be an artifact of the data generator.
 
 **Engine: precision 0.93, recall 0.70** across 18,450 transactions at a 1.04% fraud
 rate. Replays 148,000 transactions in 600ms.
 
 ## Status
-Engine complete (tagged `v1-engine`). A REST API wrapping it is in progress on the
-`spring-api` branch: replay endpoints and input validation working, persistence and
-authentication to follow.
+Engine complete (tagged `v1-engine`). A REST API with MySQL persistence is in progress
+on the `spring-api` branch. Authentication, a tuning UI, and deployment to follow.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
@@ -70,8 +69,8 @@ which are missed.
 
 Impossible travel sits at exactly 0.50 by construction: the pattern plants two
 transactions, and the first has no meaningful prior to compare against, so only the
-second can fire. This held at exactly 0.50 across all six dataset sizes tested
-(4,687 to 147,950 transactions) — a structural ceiling, not a tuning failure.
+second can fire. This held at exactly 0.50 across all six dataset sizes tested (4,687
+to 147,950 transactions) — a structural ceiling, not a tuning failure.
 
 Burst is the weakest at 0.52. The opening transactions of each burst pass before
 enough history accumulates, so the engine catches the tail of an attack rather than
@@ -192,13 +191,15 @@ rather than a matter of eyeballing console output.
 
 *In progress on the `spring-api` branch.*
 
-Spring Boot 3.4 wraps the engine.
+Spring Boot 3.4 wraps the engine; MySQL stores every run.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Liveness check |
 | GET | `/api/replay/default` | Replay with the shipped configuration |
 | POST | `/api/replay` | Replay with caller-supplied rule parameters |
+| GET | `/api/replay/history` | All stored runs, newest first |
+| GET | `/api/replay/history/{id}` | One run, or 404 |
 
 POST accepts every tunable as JSON — account count, dataset seed, and each rule's
 thresholds — and returns metrics, per-rule firing counts, and per-pattern detection
@@ -207,8 +208,7 @@ rerunning; it is now a field in a request body. This is the foundation a tuning 
 would sit on: each slider maps to one field.
 
 Verified by reproducing the `SpendVelocity(x4.0)` result from the tuning table above
-via the API — 45 fraud caught, 12 shopping trips hit, precision 0.87 — matching the
-recompiled run exactly.
+via the API — 45 fraud caught, 12 shopping trips hit — matching the recompiled run.
 
 ### API design decisions
 
@@ -227,11 +227,12 @@ recompiled run exactly.
   carries nine tunables with a `defaults()` factory holding the shipped configuration
   in one place, referenced by both the console harness and the API.
 - **`ConfusionMatrix` and `AttributionReport` gained getters but return no internal
-  collections.** Handing out a mutable map would let a caller corrupt the counts — the
-  same instinct as the unmodifiable views in `AccountHistory`.
+  collections.** Handing out a mutable map would let a caller corrupt the counts.
 - **Records serialise directly.** `ReplayResult` and its nested `RuleStat` and
-  `PatternStat` are the API response shape; Jackson maps them without any intermediate
+  `PatternStat` are the API response shape; Jackson maps them without an intermediate
   DTO layer.
+- **Spring's `ObjectMapper` is injected rather than constructed.** Creating a second
+  one would work but would drift from the configuration used for API responses.
 
 ### Input validation
 
@@ -246,7 +247,6 @@ first, so a caller fixes five problems in one pass instead of five round trips:
 
 ```json
 {
-  "timestamp": "...",
   "status": 400,
   "error": "Validation failed",
   "fieldErrors": {
@@ -283,11 +283,56 @@ The handler addresses the case that was found; the properties address the cases 
 were not. Relying only on having anticipated every error path is how this class of
 leak survives.
 
-### Not yet done
-- No persistence. Replay results are computed and discarded, so configurations cannot
-  be compared across sessions.
-- No authentication.
-- The web layer has no tests.
+### Persistence
+
+Every replay is saved to MySQL with its parameters and results. The tuning tables
+earlier in this document were assembled by editing constants, recompiling, and
+transcribing console output by hand. The same comparison is now three POST requests
+and one GET:
+
+| ID | Spend multiplier | Precision | Recall | Shopping trips hit |
+|---|---|---|---|---|
+| 3 | 8.0 | 0.935 | 0.677 | 1 |
+| 1 | 6.0 | 0.931 | 0.703 | 2 |
+| 2 | 4.0 | 0.870 | 0.729 | 13 |
+
+*These figures include the amount rule's contribution, so they differ slightly from
+the isolated `SpendVelocity` tuning table above, which measured that rule alone.*
+
+**Schema design: one table, not three.** Per-rule and per-pattern breakdowns are
+variable-length lists, which would normally become separate tables with foreign keys.
+But those breakdowns are only ever read as part of a whole run — there is no realistic
+query like "find runs where SpendVelocity caught more than 40." Normalising data that
+is only ever read as a unit buys nothing and costs joins, so the breakdowns are stored
+as a JSON column alongside the scalar metrics. If a query pattern emerges that needs
+them relationally, splitting them out is a contained change.
+
+**`precision` is a reserved word in MySQL.** The first schema generation failed with a
+syntax error. The fields are mapped to `precision_score` and `recall_score` via
+`@Column(name = ...)` while keeping their Java names. Worth noting that Hibernate
+logged the DDL failure as a warning and the application started anyway — a schema that
+failed to create does not stop startup, it breaks later at the first insert.
+
+**Entities are classes, not records.** JPA builds objects from database rows by
+reflection, which requires a no-arg constructor and mutable fields. The API layer uses
+records and the persistence layer does not — different constraints, different tools.
+`ReplayRun`'s no-arg constructor is `protected` so only Hibernate can reach it.
+
+**Credentials are not in version control.** `application.properties` holds
+`${DB_PASSWORD}`; the real value lives in `application-local.properties`, which is
+gitignored. Deployment supplies the same variable through the environment rather than
+a file.
+
+### Known gaps in the API layer
+- **`ddl-auto=update` is development-only.** Hibernate alters the schema to match
+  entity classes at startup, never drops columns, and makes changes without asking, so
+  the schema drifts silently. A production version would use versioned migrations
+  (Flyway or Liquibase).
+- **The history endpoints return the entity directly**, coupling the API shape to the
+  database schema — renaming a column would be a breaking API change. A response DTO
+  is the correct fix.
+- **No authentication.** Every endpoint is public.
+- **The web and persistence layers have no tests.** Coverage is limited to rule logic.
 
 ## Corrections
 
@@ -401,8 +446,6 @@ came out identical afterwards.
   defensively for one that trusts its input — faster, and more fragile.
 - Burst recall is 0.52. The opening transactions of each burst pass before enough
   history accumulates, and no current rule addresses the head of an attack.
-- The replay loop, confusion matrix, attribution report, data generator, and the entire
-  web layer are untested. Coverage is limited to rule logic.
 - Legitimate behaviour is modelled by two patterns. Real traffic contains checkout
   retries, split payments, and subscription batches that this dataset does not model,
   so precision would degrade against production data.
@@ -415,14 +458,16 @@ came out identical afterwards.
   widest rule window.
 
 ## Stack
-Java 21, Maven, JUnit 5, Spring Boot 3.4.
+Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Data JPA, MySQL 8.
 
 ## Running
 
 **Console harness:** run `com.hassan.anomaly.Main`. Adjust the `accounts` constant at
 the top of `main` to change dataset size.
 
-**API:** run `com.hassan.anomaly.AnomalyApplication`, then
-`GET http://localhost:8080/api/replay/default`.
+**API:** requires MySQL running with a database named `anomaly_engine`. Create
+`src/main/resources/application-local.properties` with your
+`spring.datasource.password`, run `com.hassan.anomaly.AnomalyApplication` with
+`-Dspring.profiles.active=local`, then `GET http://localhost:8080/api/replay/default`.
 
 Tests run via `mvn test` or through the IDE.
