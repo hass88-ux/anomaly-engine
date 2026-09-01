@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class ReplayService {
 
+    private static final int ALERT_LIMIT = 50;
+
     private final ReplayRunRepository repository;
     private final ObjectMapper objectMapper;
 
@@ -38,6 +40,7 @@ public class ReplayService {
         ConfusionMatrix matrix = new ConfusionMatrix();
         AttributionReport attribution = new AttributionReport();
         AccountHistory seen = new AccountHistory();
+        List<AlertRecord> alerts = new ArrayList<>();
 
         long startNanos = System.nanoTime();
 
@@ -49,6 +52,13 @@ public class ReplayService {
                 if (rule.isSuspicious(view, seen)) {
                     fired.add(rule.name());
                 }
+            }
+
+            if (!fired.isEmpty()) {
+                alerts.add(new AlertRecord(
+                        txn.id(), txn.accountId(), txn.occurredAt(), txn.amount(),
+                        txn.latitude(), txn.longitude(),
+                        List.copyOf(fired), txn.isFraud()));
             }
 
             matrix.record(!fired.isEmpty(), txn.isFraud());
@@ -75,12 +85,20 @@ public class ReplayService {
                 })
                 .toList();
 
+        int distinctFlaggedAccounts = (int) alerts.stream()
+                .map(AlertRecord::accountId)
+                .distinct()
+                .count();
+
+        List<AccountAlert> accountAlerts = AlertBuilder.groupByAccount(alerts, ALERT_LIMIT);
+
         ReplayResult result = new ReplayResult(
                 all.size(), fraudCount, elapsedMs,
                 matrix.truePositives(), matrix.falsePositives(),
                 matrix.trueNegatives(), matrix.falseNegatives(),
                 matrix.precision(), matrix.recall(),
-                ruleStats, patternStats);
+                ruleStats, patternStats,
+                accountAlerts, distinctFlaggedAccounts);
 
         persist(request, result, username);
 

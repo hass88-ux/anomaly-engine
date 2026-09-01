@@ -5,7 +5,15 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function sessionExpired() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("username");
+  window.location.reload();
+}
+
 async function request(path, options = {}) {
+  const isAuthCall = path.startsWith("/auth/");
+
   const response = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
@@ -14,6 +22,11 @@ async function request(path, options = {}) {
       ...options.headers,
     },
   });
+
+  if (!isAuthCall && (response.status === 401 || response.status === 403)) {
+    sessionExpired();
+    throw new Error("Your session expired. Please sign in again.");
+  }
 
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;

@@ -14,7 +14,9 @@ public record ReplayResult(
         double precision,
         double recall,
         List<RuleStat> ruleStats,
-        List<PatternStat> patternStats
+        List<PatternStat> patternStats,
+        List<AccountAlert> accountAlerts,
+        int totalFlaggedAccounts
 ) {
     public record RuleStat(String rule, int firedOnFraud, int firedOnLegitimate) {}
 
