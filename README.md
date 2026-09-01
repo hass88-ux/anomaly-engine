@@ -12,8 +12,9 @@ to be an artifact of the data generator.
 rate. Replays 148,000 transactions in 600ms.
 
 ## Status
-Engine complete (tagged `v1-engine`). A REST API with MySQL persistence is in progress
-on the `spring-api` branch. Authentication, a tuning UI, and deployment to follow.
+Engine complete (tagged `v1-engine`). A REST API with MySQL persistence and JWT
+authentication is in progress on the `spring-api` branch. A tuning UI and deployment
+to follow.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
@@ -191,15 +192,17 @@ rather than a matter of eyeballing console output.
 
 *In progress on the `spring-api` branch.*
 
-Spring Boot 3.4 wraps the engine; MySQL stores every run.
+Spring Boot 3.4 wraps the engine; MySQL stores every run; JWT protects the endpoints.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/health` | Liveness check |
-| GET | `/api/replay/default` | Replay with the shipped configuration |
-| POST | `/api/replay` | Replay with caller-supplied rule parameters |
-| GET | `/api/replay/history` | All stored runs, newest first |
-| GET | `/api/replay/history/{id}` | One run, or 404 |
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/auth/register` | public | Create account, returns a token |
+| POST | `/api/auth/login` | public | Exchange credentials for a token |
+| GET | `/api/health` | public | Liveness check |
+| GET | `/api/replay/default` | token | Replay with the shipped configuration |
+| POST | `/api/replay` | token | Replay with caller-supplied parameters |
+| GET | `/api/replay/history` | token | All stored runs, newest first |
+| GET | `/api/replay/history/{id}` | token | One run, or 404 |
 
 POST accepts every tunable as JSON — account count, dataset seed, and each rule's
 thresholds — and returns metrics, per-rule firing counts, and per-pattern detection
@@ -323,6 +326,85 @@ records and the persistence layer does not — different constraints, different 
 gitignored. Deployment supplies the same variable through the environment rather than
 a file.
 
+### Authentication
+
+JWT bearer tokens, BCrypt password hashing, default-deny authorisation.
+
+**Default-deny.** The config ends with `anyRequest().authenticated()` and lists the
+public exceptions above it. The inverse — listing what is protected — means any
+endpoint added later is public until someone remembers to secure it. Ordering the
+rules this way makes forgetting fail closed.
+
+**Passwords are BCrypt-hashed, never stored or logged.** BCrypt is deliberately slow,
+which is a design goal rather than a flaw: it makes brute-forcing a stolen hash dump
+expensive. It also salts automatically, so two users with the same password produce
+different hashes — defeating rainbow tables and preventing an attacker from seeing
+which accounts share a password. The entity field is named `passwordHash` and has no
+setter, so there is no path that assigns a plaintext value to it.
+
+**Login does not distinguish "no such user" from "wrong password."** Separate messages
+would give an attacker a username enumeration oracle: probe with common usernames,
+watch which error comes back, then concentrate password attacks on accounts known to
+exist. Both cases return the same 401 and the same body.
+
+**Token failures are indistinguishable.** `usernameFrom` catches every parse and
+verification failure — tampered signature, expiry, malformed input, null — and returns
+null in all cases. The caller treats that as unauthenticated. Reporting *why* a token
+was rejected gives an attacker free information about which part of their forgery
+failed.
+
+**The JWT filter authenticates but never rejects.** It reads the token, establishes
+identity if it can, and always calls `chain.doFilter`. Rejection is the authorisation
+layer's job. Combining the two would make public endpoints impossible, since the
+filter cannot know whether the endpoint being requested requires a token.
+
+**CSRF protection is disabled, and that is safe here specifically because the token
+travels in a header.** CSRF attacks work by exploiting credentials the browser
+attaches automatically — cookies. An `Authorization` header is never sent
+automatically; a client must add it deliberately, and a cross-origin page cannot. If
+the token were moved to a cookie for convenience, CSRF protection would become
+mandatory again. The safety comes from the transport decision, not from JWT itself.
+
+**Sessions are disabled explicitly** (`SessionCreationPolicy.STATELESS`). Without
+this, Spring creates a session on first authentication and the result is a hybrid that
+is neither properly stateless nor properly session-based.
+
+**The signing secret is 48 random characters, gitignored, and injected from
+configuration.** The library rejects secrets under 32 bytes at startup rather than
+silently accepting a weak key. This secret is more dangerous than the database
+password: anyone holding it can mint a valid token for any user without touching the
+database.
+
+Verified by sending three requests to a protected endpoint: no token → 403, valid
+token → 200, token with one character altered → 403. The third is the test that
+matters — the first two only prove a header is being checked, while the third proves
+the signature is verified.
+
+#### The limitation this design accepts
+
+**Tokens cannot be revoked.** They are valid until they expire, sixty minutes after
+issue. A user who logs out still holds a working token. An account disabled for abuse
+stays usable for up to an hour. This is inherent to stateless authentication — the
+server verifies a signature rather than consulting a store, which is exactly what
+makes it scale across instances without shared session state.
+
+The mitigations each cost something:
+
+- **Short expiry** narrows the window but forces frequent re-authentication.
+- **Refresh tokens** improve the experience but move the revocation problem to a
+  longer-lived credential.
+- **A revocation list** works but reintroduces the shared state that statelessness was
+  meant to remove, and every request then pays a lookup.
+
+Sixty minutes is a choice rather than a default worth defending: an internal analysis
+tool with a small user base and no destructive operations tolerates a one-hour
+revocation gap that a payments system would not.
+
+**A JWT is signed, not encrypted.** The header and payload are base64, readable by
+anyone holding the token. The signature proves it has not been altered; it does not
+hide the contents. Nothing sensitive goes in the payload — this one carries a username
+and two timestamps.
+
 ### Known gaps in the API layer
 - **`ddl-auto=update` is development-only.** Hibernate alters the schema to match
   entity classes at startup, never drops columns, and makes changes without asking, so
@@ -331,8 +413,12 @@ a file.
 - **The history endpoints return the entity directly**, coupling the API shape to the
   database schema — renaming a column would be a breaking API change. A response DTO
   is the correct fix.
-- **No authentication.** Every endpoint is public.
-- **The web and persistence layers have no tests.** Coverage is limited to rule logic.
+- **No token revocation.** See above — an accepted trade-off of stateless auth,
+  mitigated only by the 60-minute expiry.
+- **No rate limiting on login.** Nothing prevents unlimited password attempts against
+  a known username. BCrypt's cost factor slows each attempt but does not cap them.
+- **The web, security, and persistence layers have no tests.** Coverage is limited to
+  rule logic.
 
 ## Corrections
 
@@ -458,7 +544,7 @@ came out identical afterwards.
   widest rule window.
 
 ## Stack
-Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Data JPA, MySQL 8.
+Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Security, Spring Data JPA, MySQL 8.
 
 ## Running
 
@@ -466,8 +552,11 @@ Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Data JPA, MySQL 8.
 the top of `main` to change dataset size.
 
 **API:** requires MySQL running with a database named `anomaly_engine`. Create
-`src/main/resources/application-local.properties` with your
-`spring.datasource.password`, run `com.hassan.anomaly.AnomalyApplication` with
-`-Dspring.profiles.active=local`, then `GET http://localhost:8080/api/replay/default`.
+`src/main/resources/application-local.properties` with `spring.datasource.password`
+and a `jwt.secret` of at least 32 characters, then run
+`com.hassan.anomaly.AnomalyApplication` with `-Dspring.profiles.active=local`.
+
+Register at `POST /api/auth/register`, then send the returned token as
+`Authorization: Bearer <token>` on protected endpoints.
 
 Tests run via `mvn test` or through the IDE.
