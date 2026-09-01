@@ -7,6 +7,7 @@
   --accent: #635bff;
   --accent-hover: #5449e0;
   --danger: #cd3d64;
+  --success: #0a7d55;
   --radius: 8px;
   --shadow: 0 2px 5px rgba(60, 66, 87, 0.08), 0 1px 1px rgba(0, 0, 0, 0.05);
 }
@@ -48,6 +49,14 @@ button.link {
 }
 button.link:hover { background: none; color: var(--accent); }
 
+button.secondary {
+  width: 100%;
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+button.secondary:hover { background: var(--bg); border-color: #cfd7df; }
+
 input[type="text"], input[type="password"], input:not([type]) {
   width: 100%;
   padding: 9px 12px;
@@ -85,6 +94,7 @@ label {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
 }
 .login-card {
   background: var(--surface);
@@ -95,7 +105,50 @@ label {
 }
 .login-card h1 { margin-bottom: 4px; }
 .subtitle { color: var(--text-muted); margin: 0 0 26px; font-size: 14px; }
-.login-card button { width: 100%; }
+.login-card > button { width: 100%; }
+
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: -2px 0 8px;
+}
+
+.rules {
+  list-style: none;
+  padding: 0;
+  margin: -6px 0 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.rules li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+}
+.rules li.met { color: var(--success); }
+.tick { width: 12px; display: inline-block; text-align: center; }
+
+.mismatch {
+  color: var(--danger);
+  font-size: 12px;
+  margin: -8px 0 14px;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.divider span { padding: 0 12px; }
 
 /* app shell */
 header {
@@ -197,3 +250,8 @@ td {
   font-variant-numeric: tabular-nums;
 }
 tr:last-child td { border-bottom: none; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; padding: 16px; }
+  header { padding: 16px; }
+}

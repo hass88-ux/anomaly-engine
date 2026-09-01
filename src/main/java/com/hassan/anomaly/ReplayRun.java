@@ -21,6 +21,9 @@ public class ReplayRun {
     @Column(nullable = false)
     private Instant runAt;
 
+    @Column(nullable = false)
+    private String username;
+
     private int accounts;
     private int days;
     private long seed;
@@ -52,9 +55,10 @@ public class ReplayRun {
     protected ReplayRun() {
     }
 
-    public ReplayRun(Instant runAt, ReplayRequest request,
+    public ReplayRun(Instant runAt, String username, ReplayRequest request,
                      ReplayResult result, String breakdownJson) {
         this.runAt = runAt;
+        this.username = username;
         this.accounts = request.accounts();
         this.days = request.days();
         this.seed = request.seed();
@@ -78,6 +82,7 @@ public class ReplayRun {
 
     public Long getId() { return id; }
     public Instant getRunAt() { return runAt; }
+    public String getUsername() { return username; }
     public int getAccounts() { return accounts; }
     public int getDays() { return days; }
     public long getSeed() { return seed; }

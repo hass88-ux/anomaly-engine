@@ -21,7 +21,7 @@ public class ReplayService {
         this.objectMapper = objectMapper;
     }
 
-    public ReplayResult run(ReplayRequest request) {
+    public ReplayResult run(ReplayRequest request, String username) {
         List<Transaction> all = new DataGenerator(request.seed())
                 .generate(request.accounts(), request.days());
 
@@ -82,16 +82,16 @@ public class ReplayService {
                 matrix.precision(), matrix.recall(),
                 ruleStats, patternStats);
 
-        persist(request, result);
+        persist(request, result, username);
 
         return result;
     }
 
-    private void persist(ReplayRequest request, ReplayResult result) {
+    private void persist(ReplayRequest request, ReplayResult result, String username) {
         try {
             String breakdown = objectMapper.writeValueAsString(
                     new Breakdown(result.ruleStats(), result.patternStats()));
-            repository.save(new ReplayRun(Instant.now(), request, result, breakdown));
+            repository.save(new ReplayRun(Instant.now(), username, request, result, breakdown));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Could not serialise replay breakdown", e);
         }

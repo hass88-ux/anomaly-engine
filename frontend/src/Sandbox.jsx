@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { runReplay } from "./api";
+import { useState, useEffect } from "react";
+import { runReplay, fetchHistory } from "./api";
+import Curve from "./Curve";
 
 const DEFAULTS = {
   accounts: 400,
@@ -13,7 +14,14 @@ const DEFAULTS = {
   geoMaxSpeedKmh: 900.0,
 };
 
-const CONTROLS = [
+const DATASET_CONTROLS = [
+  { key: "seed", label: "Dataset seed", min: 1, max: 200, step: 1,
+    help: "Changes the dataset entirely. Findings that survive a seed change are real" },
+  { key: "accounts", label: "Accounts", min: 50, max: 2000, step: 50,
+    help: "Roughly 46 transactions per account" },
+];
+
+const RULE_CONTROLS = [
   { key: "velocitySpendMultiplier", label: "Spend velocity multiplier", min: 2, max: 12, step: 0.5,
     help: "Window spend must exceed this multiple of the account's average" },
   { key: "velocityMinCount", label: "Spend velocity min count", min: 2, max: 10, step: 1,
@@ -31,8 +39,21 @@ const CONTROLS = [
 export default function Sandbox({ username, onLogout }) {
   const [params, setParams] = useState(DEFAULTS);
   const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  async function loadHistory() {
+    try {
+      setHistory(await fetchHistory());
+    } catch {
+      // history is supplementary; a failure here should not block the page
+    }
+  }
 
   function update(key, value) {
     setParams({ ...params, [key]: Number(value) });
@@ -43,6 +64,7 @@ export default function Sandbox({ username, onLogout }) {
     setError("");
     try {
       setResult(await runReplay(params));
+      await loadHistory();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -62,24 +84,14 @@ export default function Sandbox({ username, onLogout }) {
 
       <div className="layout">
         <section className="panel">
-          <h2>Rule parameters</h2>
+          <h2>Dataset</h2>
+          {DATASET_CONTROLS.map((c) => (
+            <Slider key={c.key} control={c} value={params[c.key]} onChange={update} />
+          ))}
 
-          {CONTROLS.map((c) => (
-            <div className="control" key={c.key}>
-              <div className="control-head">
-                <label>{c.label}</label>
-                <span className="value">{params[c.key]}</span>
-              </div>
-              <input
-                type="range"
-                min={c.min}
-                max={c.max}
-                step={c.step}
-                value={params[c.key]}
-                onChange={(e) => update(c.key, e.target.value)}
-              />
-              <p className="help">{c.help}</p>
-            </div>
+          <h2 style={{ marginTop: 28 }}>Rule parameters</h2>
+          {RULE_CONTROLS.map((c) => (
+            <Slider key={c.key} control={c} value={params[c.key]} onChange={update} />
           ))}
 
           <div className="actions">
@@ -113,9 +125,7 @@ export default function Sandbox({ username, onLogout }) {
               <h2>Detection by pattern</h2>
               <table>
                 <thead>
-                  <tr>
-                    <th>Pattern</th><th>Caught</th><th>Total</th><th>Rate</th>
-                  </tr>
+                  <tr><th>Pattern</th><th>Caught</th><th>Total</th><th>Rate</th></tr>
                 </thead>
                 <tbody>
                   {result.patternStats.map((p) => (
@@ -132,9 +142,7 @@ export default function Sandbox({ username, onLogout }) {
               <h2>Rule contributions</h2>
               <table>
                 <thead>
-                  <tr>
-                    <th>Rule</th><th>On fraud</th><th>On legitimate</th>
-                  </tr>
+                  <tr><th>Rule</th><th>On fraud</th><th>On legitimate</th></tr>
                 </thead>
                 <tbody>
                   {result.ruleStats.map((r) => (
@@ -148,8 +156,67 @@ export default function Sandbox({ username, onLogout }) {
               </table>
             </>
           )}
+
+          {history.length > 0 && (
+            <>
+              <h2>Previous runs</h2>
+              <p className="help" style={{ marginBottom: 12 }}>
+                Every run is stored. Compare configurations to see the trade-off.
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Seed</th>
+                    <th>Spend ×</th>
+                    <th>Amount ×</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>TP</th>
+                    <th>FP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.slice(0, 10).map((h) => (
+                    <tr key={h.id}>
+                      <td>{h.seed}</td>
+                      <td>{h.velocitySpendMultiplier}</td>
+                      <td>{h.amountMultiplier}</td>
+                      <td>{h.precision.toFixed(3)}</td>
+                      <td>{h.recall.toFixed(3)}</td>
+                      <td>{h.truePositives}</td>
+                      <td>{h.falsePositives}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </section>
       </div>
+
+      <div style={{ padding: "0 32px 32px" }}>
+        <Curve params={params} />
+      </div>
+    </div>
+  );
+}
+
+function Slider({ control, value, onChange }) {
+  return (
+    <div className="control">
+      <div className="control-head">
+        <label>{control.label}</label>
+        <span className="value">{value}</span>
+      </div>
+      <input
+        type="range"
+        min={control.min}
+        max={control.max}
+        step={control.step}
+        value={value}
+        onChange={(e) => onChange(control.key, e.target.value)}
+      />
+      <p className="help">{control.help}</p>
     </div>
   );
 }
