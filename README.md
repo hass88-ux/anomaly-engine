@@ -14,8 +14,8 @@ amount distributions, and geography.
 Status
 Engine complete (tagged `v1-engine`). REST API with MySQL persistence, JWT
 authentication and Hibernate-enforced tenant isolation complete. React interface
-complete for tuning, results, and alert review. CSV upload with async analysis complete
-at the API layer; its interface is in progress. Deployment to follow.
+complete: rule tuning, generated runs, CSV upload with column mapping and live progress,
+alert review, and history. Deployment to follow.
 Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
 its own accuracy in the moment. Generating the data means ground truth is known at
@@ -337,11 +337,25 @@ cities would make most randomly-chosen pairs close together, and the planted
 impossible-travel pattern would stop being impossible. Generation stays anchored on
 major metros; only the display name is resolved against the full gazetteer.
 Interface
-React with Vite, six pages behind JWT auth: overview, run configuration, alerts,
-analysis, history, and a user manual.
+React with Vite, seven pages behind JWT auth: overview, run configuration, upload,
+alerts, analysis, history, and a user manual.
 Rule thresholds are sliders bound to the same fields `ReplayRequest` validates
 server-side, so tuning that previously required editing constants and recompiling is now
 a drag and a click.
+The upload flow
+Drop a file, confirm the columns, watch it run. Detected mappings arrive pre-filled in
+seven dropdowns with the file's own headers as options, alongside five sample rows so the
+mapping can be checked against real values rather than trusted. Warnings appear before
+anything is analysed — no geo columns, no fraud label — so the user knows what they are
+giving up before committing.
+Progress polls every 600ms against the job endpoint. Rows that could not be read are
+listed afterwards by line number with the specific problem, not summarised as a count: "3
+rows rejected" is a dead end, "line 501: unrecognised date format" is something the user
+can fix.
+The interface degrades with the data. When a file has no fraud label, precision and
+recall render as an em dash with the note "no fraud label in file" rather than 0.000, and
+the true/false-positive column disappears from the alert detail table entirely. Showing a
+verdict column full of guesses would be inventing information the tool does not have.
 Session expiry is handled rather than ignored. The client initially treated the
 presence of a username in `localStorage` as proof of being logged in, while the server
 only trusts a valid JWT. Once the 60-minute token expired, the interface cheerfully
@@ -626,7 +640,9 @@ Rules cannot read the fraud label — enforced by the type system, not by conven
 which has neither. The replay loop strips the labels before rules see the data and reads
 them only when scoring. A rule that peeks at the label scores perfectly and proves
 nothing, and the failure is invisible because the output looks excellent. Making it a
-compile error removes the possibility.
+compile error removes the possibility. Verified empirically: the same 20,195-row file
+uploaded with and without its `is_fraud` column produced an identical set of flagged
+accounts. The label determines only whether a run can be scored, never what the rules do.
 The replay loop appends each transaction to history after evaluating it, so no rule
 can see the future. Reversing those two lines would inflate every metric here.
 The loop evaluates every rule on every transaction rather than short-circuiting. Wasted
@@ -702,9 +718,9 @@ is not yet implemented.
 Uploaded files are stored on local disk between upload and analysis. This works on a
 single instance; behind a load balancer the analyse request could land on a machine that
 does not hold the file. S3 is the correct fix, deferred to deployment.
-Job filenames display the upload ID rather than the original filename, because the
-analyse request does not carry it forward from the upload preview. Cosmetic, and fixed
-alongside the upload interface.
+The active job is lost on page refresh. The completed job ID lives in React state,
+so reloading the Alerts page falls back to an empty view even though the results are
+still in the database. Persisting it to `localStorage` is the fix.
 Alerts accumulate in memory during a run. The parser is bounded, but a file where
 most rows flag would still grow the alert list without limit.
 Burst recall is 0.52. The opening transactions of each burst pass before enough history
@@ -723,10 +739,10 @@ reasoned trade-off, not a claim that rules are better.
 bounded replay; the uploaded-file path uses the same structure and inherits the same
 ceiling on accounts, though not on transactions.
 Roadmap
-Upload and column-mapping interface
+Coercion and parser test coverage
 Run comparison — diff two configurations across precision, recall, and per-rule firing
 counts
-Coercion and parser test coverage
+Persist the active job across a page refresh
 Deployment to AWS with S3-backed upload storage
 CI running the test suite on every push
 Stack
