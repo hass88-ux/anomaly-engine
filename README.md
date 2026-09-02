@@ -1,181 +1,169 @@
-# Transaction Anomaly Detection Engine
-
+Transaction Anomaly Detection Engine
 A rule-based fraud detection engine evaluated against synthetic transaction data with
 planted fraud patterns, so precision and recall can be measured directly rather than
-estimated.
-
+estimated — and now pointed at arbitrary uploaded CSVs, where no ground truth exists.
 Four planted attack shapes, four rule types, per-pattern detection rates, a 225x
-performance rewrite, and a documented case where a rule's apparent accuracy turned out
-to be an artifact of the data generator.
-
-**Engine: precision 0.93, recall 0.70** across 18,450 transactions at a 1.04% fraud
+performance rewrite, a documented case where a rule's apparent accuracy turned out to
+be an artifact of the data generator, and a streaming ingestion path that analyses
+files the engine has never seen.
+Engine: precision 0.93, recall 0.70 across 18,450 transactions at a 1.04% fraud
 rate. Replays 148,000 transactions in 600ms.
-
-## Status
-Engine complete (tagged `v1-engine`). A REST API with MySQL persistence and JWT
-authentication is in progress on the `spring-api` branch. A tuning UI and deployment
-to follow.
-
-## Why synthetic data
+Against an independently generated file: precision 0.978, recall 0.538 across
+20,195 transactions written by a different program with different fraud shapes,
+amount distributions, and geography.
+Status
+Engine complete (tagged `v1-engine`). REST API with MySQL persistence and JWT
+authentication complete. React interface complete for tuning, results, and alert
+review. CSV upload with async analysis complete at the API layer; its interface is in
+progress. Deployment to follow.
+Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
 its own accuracy in the moment. Generating the data means ground truth is known at
 evaluation time and rule changes can be measured rather than guessed at. The labels
 are planted by design — this is a controlled experiment, not a claim about real-world
 fraud rates.
-
 The dataset is seeded, so every run produces identical data. Without this, a metric
 moving between runs could mean an improved rule or just a different random draw.
-
 Pattern frequencies are calibrated to hold the overall fraud rate near 1%, roughly in
 line with published card fraud rates. Because changing any frequency shifts the
 sequence of random draws, results are only comparable within a single generator
 configuration.
-
-## Dataset design
-
-| Pattern | Label | Shape | Purpose |
-|---|---|---|---|
-| Burst | fraud | 6 txns, 40s apart, 2–5x normal amount, one location | Rapid drain of a stolen card |
-| Card testing | fraud | 8 txns, 11h apart, small amounts | Verifying a stolen card is live |
-| Impossible travel | fraud | 2 txns, 25min apart, different cities | Card used in two places at once |
-| Shopping trip | legitimate | 4 txns, 45s apart, normal amounts, one location | Legitimate behaviour resembling a burst |
-
+The generated data is a calibration harness. It is not evidence that the engine works
+on production traffic. The independent-file result below is the closer test, and the
+uploaded-file path exists so the engine can be pointed at data nobody calibrated it
+against.
+Dataset design
+Pattern	Label	Shape	Purpose
+Burst	fraud	6 txns, 40s apart, 2–5x normal amount, one location	Rapid drain of a stolen card
+Card testing	fraud	8 txns, 11h apart, small amounts	Verifying a stolen card is live
+Impossible travel	fraud	2 txns, 25min apart, different cities	Card used in two places at once
+Shopping trip	legitimate	4 txns, 45s apart, normal amounts, one location	Legitimate behaviour resembling a burst
 Each account is assigned a home city from five Canadian metros; normal transactions
 cluster within roughly 10km of it. Without a home location, accounts would be
 scattered nationwide and impossible travel would be indistinguishable from ordinary
 behaviour.
-
-**Location varies with elapsed time.** Transactions seconds apart within a burst or
+Location varies with elapsed time. Transactions seconds apart within a burst or
 shopping trip share one location — a card tapped four times at one merchant does not
 move. Card testing, at 11-hour intervals, jitters independently. This distinction is
 not cosmetic; getting it wrong invalidated an entire set of results (see
-*Corrections*).
-
-## Results
-
+Corrections).
+Results
 18,450 transactions, 192 fraudulent (1.04%), seed 42.
-
-### Per-pattern detection
-
+Per-pattern detection
 The most informative table here. Aggregate recall hides which attacks are caught and
 which are missed.
-
-| Pattern | Caught | Total | Rate | Caught by |
-|---|---|---|---|---|
-| Card testing | 77 | 80 | 0.96 | AmountOutlier (77) |
-| Impossible travel | 11 | 22 | 0.50 | GeoImpossibility (11) |
-| Burst | 47 | 90 | 0.52 | SpendVelocity (40), AmountOutlier (7) |
-| Shopping trip *(legit)* | 2 | 204 | 0.01 | AmountOutlier (1), SpendVelocity (1) |
-| Normal *(legit)* | 8 | 18,054 | 0.0004 | AmountOutlier (7), GeoImpossibility (1) |
-
+Pattern	Caught	Total	Rate	Caught by
+Card testing	77	80	0.96	AmountOutlier (77)
+Impossible travel	11	22	0.50	GeoImpossibility (11)
+Burst	47	90	0.52	SpendVelocity (40), AmountOutlier (7)
+Shopping trip (legit)	2	204	0.01	AmountOutlier (1), SpendVelocity (1)
+Normal (legit)	8	18,054	0.0004	AmountOutlier (7), GeoImpossibility (1)
 Impossible travel sits at exactly 0.50 by construction: the pattern plants two
 transactions, and the first has no meaningful prior to compare against, so only the
 second can fire. This held at exactly 0.50 across all six dataset sizes tested (4,687
 to 147,950 transactions) — a structural ceiling, not a tuning failure.
-
 Burst is the weakest at 0.52. The opening transactions of each burst pass before
 enough history accumulates, so the engine catches the tail of an attack rather than
 the head.
-
 The false-positive rate on ordinary transactions is 0.04%. Precision alone hides how
 rare that is.
-
-### Rule contributions
-
-| Rule | Fires on fraud | Fires on legitimate | Precision |
-|---|---|---|---|
-| AmountOutlier(4.0, min 5) | 84 | 8 | 0.91 |
-| SpendVelocity(3, 3min, x6.0) | 40 | 1 | 0.98 |
-| GeoImpossibility(900 km/h) | 11 | 1 | 0.92 |
-
-**The rules are near-disjoint.** At 18,450 transactions no transaction is caught by
+Validation against data the engine had not seen
+The tables above measure the engine against its own generator, which is a conflict of
+interest no amount of care fully removes: the thresholds were tuned while looking at
+that data. A second dataset was generated by an unrelated program with different fraud
+shapes, different amount distributions, awkward column names, currency-formatted
+amounts, `dd/MM/yyyy` timestamps, `Yes`/`No` labels, and three deliberately malformed
+rows.
+Metric	Generated data	Independent file
+Transactions	18,450	20,195
+Fraud rate	1.04%	2.0%
+Precision	0.93	0.978
+Recall	0.70	0.538
+Precision holding above 0.97 on unseen data is the strongest evidence here that the
+rules generalise rather than being fitted to one generator.
+The recall drop is the more interesting number, and it is not a detection failure.
+That file planted impossible travel between Canadian cities 40 minutes apart. Toronto
+to Ottawa is roughly 350km, implying about 530 km/h — comfortably under the 900 km/h
+threshold. The rule never fired, by design. The threshold was calibrated against a
+generator planting intercontinental hops; the new file plants domestic ones.
+Nothing is broken. The configuration is wrong for that data, and the engine has no way
+to tell the operator so. This is the clearest argument for the run-comparison feature
+on the roadmap: a tunable detector with no way to compare configurations against a
+given dataset is a tool that can be silently misconfigured.
+Rule contributions
+Rule	Fires on fraud	Fires on legitimate	Precision
+AmountOutlier(4.0, min 5)	84	8	0.91
+SpendVelocity(3, 3min, x6.0)	40	1	0.98
+GeoImpossibility(900 km/h)	11	1	0.92
+The rules are near-disjoint. At 18,450 transactions no transaction is caught by
 more than one rule. At 147,950, 9 of 1,435 caught transactions fire two rules
 (SpendVelocity and AmountOutlier) — 0.6%. The clean partition at smaller sizes is a
 property of the sample, not a guarantee.
-
 Each rule targets a distinct signature: aggregate spend in a window, individual amount
 deviation, and implied travel speed. A burst of four 3x transactions is 12x in
 aggregate but each transaction sits below the 4x individual threshold, which is why
 `SpendVelocity` and `AmountOutlier` rarely collide despite both reading amounts.
-
-### Spend velocity: replacing count with spend
-
+Spend velocity: replacing count with spend
 The original `VelocityRule` counted transactions in a window and ignored what they
 were worth. Once the shopping-trip decoy was tightened to 45-second spacing, that rule
 fired on 51 legitimate transactions against 45 fraudulent ones — precision 0.47.
-
 Tempo could not separate the populations: bursts are 40s apart, trips 45s. Count
 could, but only because trips contain exactly 4 transactions — tuning to that is
 brittle and fails the moment a real shopper makes five purchases.
-
 Amount was the robust separator. Bursts run 2–5x the account baseline, trips 0.4–1.4x,
 and those distributions barely touch. `SpendVelocityRule` requires both a minimum
-count in the window **and** aggregate window spend abnormal against the account's own
+count in the window and aggregate window spend abnormal against the account's own
 mean.
-
-| Multiplier | Fraud caught | Shopping trips hit | Marginal cost |
-|---|---|---|---|
-| 8.0 | 35 | 0 | — |
-| **6.0** | **40** | **1** | 5 TP per 1 FP |
-| 4.0 | 45 | 12 | 5 TP per 11 FP |
-
+Multiplier	Fraud caught	Shopping trips hit	Marginal cost
+8.0	35	0	—
+6.0	40	1	5 TP per 1 FP
+4.0	45	12	5 TP per 11 FP
 The 8→6 step buys 5 true positives for 1 false positive. The 6→4 step buys the same 5
 for 11. That inflection brackets the point where the spend distributions begin to
-overlap. **6.0 is the operating point.**
-
+overlap. 6.0 is the operating point.
 At 4.0 the rule catches exactly 45 bursts — identical to the original count-based rule
 — with 12 false positives against 51. Same detection, a quarter of the cost.
-
 The fix was not a better threshold. It was a rule that stopped discarding information
 it already held.
-
 `VelocityRule` is retained in the codebase, marked superseded, so this comparison
 remains verifiable rather than merely asserted.
-
-### Amount outlier tuning
-
-*Measured against an earlier generator configuration. Retained because the argument
-holds; absolute figures do not correspond to the current dataset.*
-
-| Rule config | Precision | Recall |
-|---|---|---|
-| AmountOutlier(3.0, min 5) | 0.77 | 0.61 |
-| AmountOutlier(4.0, min 5) | 0.96 | 0.54 |
-| AmountOutlier(6.0, min 5) | 0.99 | 0.49 |
-
-- 6.0 → 4.0 bought 8 true positives for 2 false positives
-- 4.0 → 3.0 bought 10 true positives for 23 false positives
-
+Amount outlier tuning
+Measured against an earlier generator configuration. Retained because the argument
+holds; absolute figures do not correspond to the current dataset.
+Rule config	Precision	Recall
+AmountOutlier(3.0, min 5)	0.77	0.61
+AmountOutlier(4.0, min 5)	0.96	0.54
+AmountOutlier(6.0, min 5)	0.99	0.49
+6.0 → 4.0 bought 8 true positives for 2 false positives
+4.0 → 3.0 bought 10 true positives for 23 false positives
 The same shape as the spend velocity curve: a threshold below which fraud amounts stop
 being separable from normal spending variance. Framed operationally, at 4x an analyst
 receives 82 alerts of which 79 are real; at 3x, 115 of which 26 are wasted. Whether
 that trade is worth making depends on the cost of a missed fraud against the cost of
 an investigation — a business decision, not an engineering one. The engine's job is to
 make the trade-off legible.
-
-## Performance
-
+The below-normal half of this rule is doing real work. Card testing plants
+transactions of $1–4 against account baselines of $20–100, so it is anomalous on the
+low side. This is why some alerts show totals of $20 across eight transactions — a
+number that looks like a bug and is in fact the signal. Flagging only large amounts
+would miss the pattern entirely.
+Performance
 The replay loop originally passed every rule a flat `List` of all prior transactions.
 Each rule then filtered that list down to one account. With 800 accounts, that meant
 scanning ~37,000 records to find the ~46 that mattered, three times per transaction —
 O(n²), and worse in practice as memory pressure compounded.
-
 Replacing the flat list with `AccountHistory`, a `Map<String, List<TransactionView>>`
 keyed by account, turned "this account's history" from a scan into a lookup.
-
-| Transactions | Before | After | Speedup |
-|---|---|---|---|
-| 4,687 | 633ms | 91ms | 7x |
-| 9,352 | 2,780ms | 127ms | 22x |
-| 18,450 | 8,920ms | 199ms | 45x |
-| 36,935 | 68,546ms | 304ms | 225x |
-| 74,033 | ~4.5 min* | 455ms | — |
-| 147,950 | ~18 min* | 600ms | — |
-
-*Extrapolated from the measured quadratic curve, not run. The original implementation
+Transactions	Before	After	Speedup
+4,687	633ms	91ms	7x
+9,352	2,780ms	127ms	22x
+18,450	8,920ms	199ms	45x
+36,935	68,546ms	304ms	225x
+74,033	~4.5 min*	455ms	—
+147,950	~18 min*	600ms	—
+Extrapolated from the measured quadratic curve, not run. The original implementation
 was not benchmarked at these sizes because the runtime made it impractical — which is
-itself the point.*
-
+itself the point.
 Two further gains came from the structure rather than the map. Because the replay loop
 feeds transactions chronologically, each account's list is inherently sorted, so
 `since(accountId, cutoff)` walks backwards from the end and stops at the cutoff —
@@ -183,71 +171,253 @@ typically a handful of steps for a 3-minute window — and returns a `subList` v
 rather than a copy. `GeoImpossibilityRule` previously streamed the full history with
 `max(Comparator.comparing(...))` to find the most recent transaction; it is now a
 single array index.
-
 Every metric was identical before and after, down to individual rule firing counts,
 across all six dataset sizes. The 22-test suite was what made that claim checkable
 rather than a matter of eyeballing console output.
-
-## REST API
-
-*In progress on the `spring-api` branch.*
-
+Ingesting arbitrary CSVs
+The engine's value is bounded by what it can be pointed at. Everything above measures
+it against data this project generated. The ingestion layer exists so it can be
+pointed at data it did not.
+Real transaction exports are not clean, and most of this code exists to deal with
+that.
+Column detection
+Headers are normalised — lowercased, non-alphanumerics stripped — and matched against
+alias lists. `customer_id`, `cardId`, `userId` and `account` all resolve to the account
+column.
+Matching is two-pass: exact matches on the normalised header win first, and only if
+nothing matches exactly does it fall back to substring matching. Without that ordering,
+a file containing both `amount` and `amount_usd` would match whichever appeared first
+in the header row rather than the better candidate. Alias lists are ordered by
+specificity for the same reason — `transaction_id` before bare `id`, because a file
+containing both almost certainly means the specific one.
+Detection is always presented to the user for confirmation, never applied silently.
+Analysing someone's data against the wrong amount column without telling them produces
+confident, wrong output — the failure mode that destroys trust in a tool permanently. A
+guess the user can correct is a feature; a guess the user cannot see is a liability.
+Value coercion
+Field	Handled
+Timestamps	ISO instant, ISO offset, ISO local, eight `dd/MM`, `MM/dd` and `yyyy/MM` variants, plus Unix epoch seconds and milliseconds
+Amounts	Currency symbols, thousands separators, accounting-style parentheses for negatives
+Booleans	`1`/`true`/`t`/`yes`/`y`/`fraud`/`fraudulent`/`chargeback` and their negatives
+The amount logic contains the one piece of genuine ambiguity. `1,234.56` and `1.234,56`
+are the same number written under English and European conventions, and no amount of
+pattern matching on separators alone resolves it. The rule that does work: whichever
+separator appears last is the decimal point. Comparing the positions of the final
+comma and the final dot handles both correctly.
+Date ambiguity is not resolvable the same way. `03/04/2026` is valid as both 3 April
+and 4 March, and nothing in the file distinguishes them. Day-first is tried first,
+which is a guess, and it is the kind of guess the mapping confirmation screen should
+surface rather than bury.
+Error isolation
+A malformed row is counted, recorded with its line number, and skipped — parsing
+continues. A file with three broken rows out of twenty thousand produces 19,997
+analysed transactions and three actionable error messages, not a rejected file. Real
+exports have malformed rows, and a tool that refuses everything because row 40,112 has
+a broken date is a tool nobody uses twice.
+Reported errors are capped at 100. A wrong column mapping produces an error on every
+row, and returning two million error objects would be its own memory problem — the
+exact failure the streaming design exists to avoid. The response reports whether the
+list was truncated, so the count is never misread as the total.
+Verified end to end: a 20,195-row file with three planted defects — an unparseable
+date, a missing account ID, and `abc` in the amount column — returned 20,192 accepted,
+3 rejected, 3 error records with line numbers, and `errorsTruncated: false`.
+Optional columns degrade rather than fail
+Only account, timestamp and amount are required.
+Latitude and longitude are optional; without them `GeoImpossibilityRule` is not
+constructed at all, rather than being fed zeros and producing nonsense.
+The fraud label is optional, and this one has a consequence worth stating plainly: a
+file with no ground truth returns `null` for precision and recall, not zero.
+Undefined and zero are different claims, and a tool reporting 0.00 precision on a file
+it cannot score is lying. No production transaction export carries a fraud label at
+ingestion time — that is the entire difficulty of the problem — so this is the common
+case, not the edge case.
+Memory is bounded
+`TransactionParser` never builds a list. It hands each parsed transaction to a
+`Consumer` and forgets it. Only the rolling window each rule needs is retained, so
+memory is O(accounts × window) rather than O(transactions): a five-million-row file
+uses the same memory as a fifty-thousand-row one.
+A method returning `List<ParsedTransaction>` would read more cleanly and would fall
+over on a large file. This is the same reasoning that produced `AccountHistory` — the
+data structure is the design decision.
+One deliberate exception: alerts accumulate in memory during a run, bounded in practice
+by how much of a file is anomalous. A file where most rows flag would still grow.
+Capping in-flight alerts is on the roadmap.
+A UTF-8 BOM is stripped before parsing
+Excel writes a byte-order mark when saving CSV. Left in place it becomes part of the
+first header name, so `transaction_id` arrives as `\uFEFFtransaction_id` and column
+matching fails on the first column of every Excel-exported file. `BomStrippingStream`
+reads three bytes, checks for the mark, and pushes them back if absent — `InputStream`
+has no push-back, so the bytes are buffered and served before delegating.
+Only `read()` is overridden, which would be slow as an outer layer. It is wrapped in a
+`BufferedReader`, which reads in large chunks and calls through rarely — a cheap
+correctness filter under a buffer.
+Asynchronous analysis
+A two-million-row file cannot be analysed inside an HTTP request. Gateways time out,
+the connection dies, and the work is lost with no record that it happened.
+The flow is split:
+`POST /api/uploads` stores the file, reads only the header and five rows, returns an
+upload ID with detected columns and a preview. A 25MB file returns in under a second
+because 99.99% of it is never touched.
+The user confirms or corrects the mapping.
+`POST /api/uploads/{id}/analyze` returns 202 Accepted with a job ID and queues
+the work. 202 rather than 200 because the work is not done — it has been accepted.
+`GET /api/jobs/{id}` reports status and progress.
+Progress is measured in bytes read against known file size, not rows. Row count is
+unknowable without a counting pass, which would double the work to populate a progress
+bar. File size is known from the filesystem for free. `CountingInputStream` sits in the
+stream and counts bytes as they pass; both `read()` overloads are implemented, because
+`BufferedReader` calls the array version and overriding only the single-byte one leaves
+the counter at zero and the bar frozen.
+Progress is written to the database every 2,000 rows, not every row. A write per row
+would cost more than the analysis.
+Percentage caps at 99 until status actually flips to `COMPLETED`. A bar sitting at 100%
+while the job is still finishing is the single most confusing state a progress indicator
+can be in.
+The thread pool is bounded: 2 core, 4 max, queue of 20. Analysis is CPU-bound, so
+running twenty concurrently on a four-core machine makes all twenty slower. Rejection
+policy is `AbortPolicy`, which throws — that is what allows the API to return `429` with
+`Retry-After` instead of silently accumulating tasks until the heap dies.
+`waitForTasksToCompleteOnShutdown` means a restart lets in-flight jobs finish rather
+than leaving rows stuck in `RUNNING` forever.
+Progress and failure updates run in `REQUIRES_NEW` transactions so they commit
+independently. If analysis fails on row 400,000, the failure is recorded rather than
+rolled back along with everything else.
+Alerts are persisted for uploaded runs and not for generated ones
+Generated runs store only the aggregate result. Every alert is reproducible from the
+seed, so storing them would grow the database for data that can be regenerated exactly.
+Uploaded runs store their alerts, capped at 500 per job. Those are not reproducible —
+the file is deleted after analysis — and a user who closes the tab during a 90-second
+run should not lose the result.
+Within `JobAlert`, summary fields are real columns because they are filtered and sorted
+on; the transaction list is a JSON blob because it is only ever read whole, when a row
+is expanded. Normalising every flagged transaction into its own table would multiply
+the row count for data never queried independently. The cost of that choice is that
+cross-alert transaction queries are not possible without a migration.
+Alert review
+Flagged transactions are grouped by account and assigned a confidence tier.
+Two or more distinct rules firing is the strongest signal, because the rules are
+near-disjoint — they detect different things, so agreement between them is meaningful
+rather than redundant. Three or more flagged transactions on one account is the other
+strong signal: a single flag could be noise, a pattern is not.
+Accounts can be marked reviewed, escalated or dismissed, with an optional note.
+Decisions persist per user, keyed on `(username, account_id)` with a database unique
+constraint — so "one review per account per user" is a guarantee rather than something
+the service layer promises. Two rapid clicks cannot produce duplicate rows.
+Setting a status back to `NEW` deletes the row rather than storing it. `NEW` is the
+absence of a decision, and a review table holding thousands of rows saying "nothing has
+happened here" is a table storing the default state. Clicking an active status clears
+it, which is what makes that path reachable from the interface.
+A consequence: notes are only available once a decision exists, because a note with no
+decision has nowhere to live. Rather than inventing a phantom state or silently
+promoting the account to `REVIEWED` behind the user's back, the button is disabled with
+an explanation. The interface reflects the data model instead of papering over it.
+Status changes are optimistic — the UI updates immediately and rolls back if the request
+fails. The rollback is what makes it honest rather than a lie.
+Location naming
+Coordinates are resolved to the nearest Canadian city for display. Alerts reading
+"Mississauga, ON" are legible in a way that "43.5890, -79.6441" is not, and impossible
+travel is only obvious when the endpoints have names.
+3,250 places are loaded from a GeoNames extract at startup, filtered to populated places
+with population ≥ 500. If the file is absent the gazetteer falls back to five built-in
+cities and logs a warning — the application runs either way, so a clone without the data
+file still works. Degrading rather than crashing on a missing optional resource is the
+correct behaviour for something that improves output rather than enabling it.
+Nearest-neighbour uses latitude-scaled distance. A degree of longitude shrinks away
+from the equator — at Toronto's 43.7°N it is about 72% the length of a degree of
+latitude, at Iqaluit's 63°N about 45%. Without the `cos(latitude)` correction, east-west
+distances are systematically overstated and the lookup returns a city that is further
+away in reality. With five cities hundreds of kilometres apart this never showed; with
+3,250 candidates it would be wrong constantly.
+Squared distance is compared and the square root never taken. The root is monotonic so
+it cannot change which city wins, and computing it 3,250 times per lookup is wasted
+work. This is deliberately not the haversine used in `GeoImpossibilityRule` — that one
+needs a distance in kilometres, this one needs only an ordering.
+Naming is separate from generation on purpose. Generating transactions from thousands of
+cities would make most randomly-chosen pairs close together, and the planted
+impossible-travel pattern would stop being impossible. Generation stays anchored on
+major metros; only the display name is resolved against the full gazetteer.
+Interface
+React with Vite, six pages behind JWT auth: overview, run configuration, alerts,
+analysis, history, and a user manual.
+Rule thresholds are sliders bound to the same fields `ReplayRequest` validates
+server-side, so tuning that previously required editing constants and recompiling is now
+a drag and a click.
+Session expiry is handled rather than ignored. The client initially treated the
+presence of a username in `localStorage` as proof of being logged in, while the server
+only trusts a valid JWT. Once the 60-minute token expired, the interface cheerfully
+displayed a signed-in header while every request was rejected — a zombie session with no
+explanation. The API client now treats a 401 or 403 on any non-auth endpoint as a dead
+session, clears local state, and returns the user to login. Auth endpoints are excluded,
+because a rejected login means bad credentials rather than an expired session, and
+conflating them would wipe the error message before it could be read.
+REST API
 Spring Boot 3.4 wraps the engine; MySQL stores every run; JWT protects the endpoints.
-
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| POST | `/api/auth/register` | public | Create account, returns a token |
-| POST | `/api/auth/login` | public | Exchange credentials for a token |
-| GET | `/api/health` | public | Liveness check |
-| GET | `/api/replay/default` | token | Replay with the shipped configuration |
-| POST | `/api/replay` | token | Replay with caller-supplied parameters |
-| GET | `/api/replay/history` | token | All stored runs, newest first |
-| GET | `/api/replay/history/{id}` | token | One run, or 404 |
-
-POST accepts every tunable as JSON — account count, dataset seed, and each rule's
-thresholds — and returns metrics, per-rule firing counts, and per-pattern detection
-rates. Reproducing a tuning run previously meant editing `Main`, recompiling, and
-rerunning; it is now a field in a request body. This is the foundation a tuning UI
-would sit on: each slider maps to one field.
-
-Verified by reproducing the `SpendVelocity(x4.0)` result from the tuning table above
-via the API — 45 fraud caught, 12 shopping trips hit — matching the recompiled run.
-
-### API design decisions
-
-- **The engine has no Spring dependencies.** `Rule`, `AccountHistory`,
-  `TransactionView`, and the four rule implementations were not modified at all to add
-  the API. Spring annotations appear only on classes in the web layer. The detection
-  logic could sit behind a CLI, a Kafka consumer, or an HTTP endpoint without
-  changing.
-- **Consequently the 22 tests still run without an application context**, in well
-  under a second. Annotating a rule class would end that.
-- **`ReplayService` holds no state.** Spring creates one instance shared across all
-  requests, so a mutable field would leak between callers. The confusion matrix,
-  attribution report, and account history are all local variables constructed per
-  call.
-- **Parameters are a request object, not a long argument list.** `ReplayRequest`
-  carries nine tunables with a `defaults()` factory holding the shipped configuration
-  in one place, referenced by both the console harness and the API.
-- **`ConfusionMatrix` and `AttributionReport` gained getters but return no internal
-  collections.** Handing out a mutable map would let a caller corrupt the counts.
-- **Records serialise directly.** `ReplayResult` and its nested `RuleStat` and
-  `PatternStat` are the API response shape; Jackson maps them without an intermediate
-  DTO layer.
-- **Spring's `ObjectMapper` is injected rather than constructed.** Creating a second
-  one would work but would drift from the configuration used for API responses.
-
-### Input validation
-
+Method	Path	Auth	Purpose
+POST	`/api/auth/register`	public	Create account, returns a token
+POST	`/api/auth/login`	public	Exchange credentials for a token
+GET	`/api/health`	public	Liveness check
+GET	`/api/replay/default`	token	Replay with the shipped configuration
+POST	`/api/replay`	token	Replay with caller-supplied parameters
+GET	`/api/replay/history`	token	All stored runs, newest first
+GET	`/api/replay/history/{id}`	token	One run, or 404
+POST	`/api/uploads`	token	Upload a CSV, returns detected columns and a preview
+POST	`/api/uploads/{id}/analyze`	token	Queue analysis, returns 202 and a job ID
+GET	`/api/jobs`	token	Recent jobs for the caller
+GET	`/api/jobs/{id}`	token	Job status, progress, parse errors
+GET	`/api/jobs/{id}/alerts`	token	Stored alerts for a completed job
+GET	`/api/reviews`	token	The caller's review decisions
+PUT	`/api/reviews/{accountId}`	token	Set or clear a review decision
+POST `/api/replay` accepts every tunable as JSON — account count, dataset seed, and each
+rule's thresholds — and returns metrics, per-rule firing counts, and per-pattern
+detection rates. Reproducing a tuning run previously meant editing `Main`, recompiling,
+and rerunning; it is now a field in a request body.
+Verified by reproducing the `SpendVelocity(x4.0)` result from the tuning table above via
+the API — 45 fraud caught, 12 shopping trips hit — matching the recompiled run.
+The job alerts endpoint deliberately returns the same shape as the replay endpoint —
+`accountAlerts` and `totalFlaggedAccounts` — so one alerts interface renders either
+source without branching on where the data came from.
+`PUT` is used for review state rather than `POST` because the operation is idempotent:
+marking the same account reviewed five times leaves the system in the same state as
+doing it once.
+API design decisions
+The engine has no Spring dependencies. `Rule`, `AccountHistory`,
+`TransactionView`, and the four rule implementations were not modified at all to add
+the API, and were not modified again to add file ingestion. Spring annotations appear
+only on classes in the web and ingest layers. The detection logic could sit behind a
+CLI, a Kafka consumer, or an HTTP endpoint without changing.
+Consequently the 22 tests still run without an application context, in well under
+a second. Annotating a rule class would end that.
+Ingestion lives in its own package. `com.hassan.anomaly.ingest` holds parsing,
+coercion, storage and job orchestration. Reading files and coercing strings is a
+different concern from detecting fraud, and mixing them would mean scrolling past
+`TransactionParser` to find `SpendVelocityRule`.
+`ReplayService` holds no state. Spring creates one instance shared across all
+requests, so a mutable field would leak between callers. The confusion matrix,
+attribution report, and account history are all local variables constructed per call.
+The same constraint applies to `UploadAnalysisService`, which runs concurrently on a
+thread pool.
+Parameters are a request object, not a long argument list. `ReplayRequest` carries
+nine tunables with a `defaults()` factory holding the shipped configuration in one
+place, referenced by both the console harness and the API.
+`ConfusionMatrix` and `AttributionReport` gained getters but return no internal
+collections. Handing out a mutable map would let a caller corrupt the counts.
+Records serialise directly. `ReplayResult` and its nested `RuleStat` and
+`PatternStat` are the API response shape; Jackson maps them without an intermediate
+DTO layer.
+Spring's `ObjectMapper` is injected rather than constructed. Creating a second one
+would work but would drift from the configuration used for API responses.
+Input validation
 Every parameter is bounded, and the bounds are reasoned rather than arbitrary.
 `accounts` caps at 10,000 — roughly 460,000 transactions, a couple of seconds of work.
 `velocityMinCount` has a floor of 2, because a velocity rule requiring one prior
-transaction is not measuring velocity. `amountMinHistory` floors at 1, since a
-baseline needs at least one observation. `seed` is unconstrained; any long is valid.
-
+transaction is not measuring velocity. `amountMinHistory` floors at 1, since a baseline
+needs at least one observation. `seed` is unconstrained; any long is valid.
+Uploads are bounded twice: 25MB by Spring's multipart limits, enforced before the
+controller is reached, and 500,000 rows by configuration, enforced during parsing. Both
+are needed — file size caps a single part, request size caps the whole body, and row
+count is what actually bounds the work.
 Validation failures return every violated field at once rather than stopping at the
 first, so a caller fixes five problems in one pass instead of five round trips:
-
 ```json
 {
   "status": 400,
@@ -261,302 +431,317 @@ first, so a caller fixes five problems in one pass instead of five round trips:
   }
 }
 ```
-
-### Information disclosure in error responses
-
+Information disclosure in error responses
 Sending a type-mismatched field (`"accounts": "four hundred"`) originally returned a
 full stack trace: package names, class names, line numbers, and the exact Spring and
 Jackson versions in use. Version disclosure is the first step in matching a target
 against known CVEs, so an unhandled parse error was leaking reconnaissance data to
 anyone willing to send a malformed request.
-
 The cause was a development convenience. Spring Boot DevTools sets
 `server.error.include-stacktrace=always`, which is useful locally and exactly the sort
 of default that reaches production unnoticed.
-
 Fixed in two places rather than one:
-
-- An `@ExceptionHandler` for `HttpMessageNotReadableException` returns a generic
-  message that deliberately does not echo Jackson's exception text, since that text
-  contains internal class and package names.
-- `server.error.include-stacktrace=never` and `include-message=never` in
-  `application.properties` cover every exception without a specific handler.
-
+An `@ExceptionHandler` for `HttpMessageNotReadableException` returns a generic message
+that deliberately does not echo Jackson's exception text, since that text contains
+internal class and package names.
+`server.error.include-stacktrace=never` and `include-message=never` in
+`application.properties` cover every exception without a specific handler.
 The handler addresses the case that was found; the properties address the cases that
-were not. Relying only on having anticipated every error path is how this class of
-leak survives.
-
-### Persistence
-
+were not. Relying only on having anticipated every error path is how this class of leak
+survives.
+Uploaded file storage
+Files are written to a per-user directory under the system temp path and deleted once
+analysis completes, with a scheduled sweep purging anything older than six hours.
+Every lookup takes the username from the security context, so one user cannot open
+another's upload by guessing an ID — tenant isolation appearing in the filesystem rather
+than only in the database.
+Upload IDs are validated as UUIDs before being used in a path. Without that, an ID
+of `../../../../etc/passwd` resolves outside the upload directory. Validating the
+shape of an identifier before using it in a path is the correct defence; escaping the
+string is not.
+Persistence
 Every replay is saved to MySQL with its parameters and results. The tuning tables
 earlier in this document were assembled by editing constants, recompiling, and
-transcribing console output by hand. The same comparison is now three POST requests
-and one GET:
-
-| ID | Spend multiplier | Precision | Recall | Shopping trips hit |
-|---|---|---|---|---|
-| 3 | 8.0 | 0.935 | 0.677 | 1 |
-| 1 | 6.0 | 0.931 | 0.703 | 2 |
-| 2 | 4.0 | 0.870 | 0.729 | 13 |
-
-*These figures include the amount rule's contribution, so they differ slightly from
-the isolated `SpendVelocity` tuning table above, which measured that rule alone.*
-
-**Schema design: one table, not three.** Per-rule and per-pattern breakdowns are
+transcribing console output by hand. The same comparison is now three POST requests and
+one GET:
+ID	Spend multiplier	Precision	Recall	Shopping trips hit
+3	8.0	0.935	0.677	1
+1	6.0	0.931	0.703	2
+2	4.0	0.870	0.729	13
+These figures include the amount rule's contribution, so they differ slightly from the
+isolated `SpendVelocity` tuning table above, which measured that rule alone.
+Schema design: one table, not three. Per-rule and per-pattern breakdowns are
 variable-length lists, which would normally become separate tables with foreign keys.
 But those breakdowns are only ever read as part of a whole run — there is no realistic
-query like "find runs where SpendVelocity caught more than 40." Normalising data that
-is only ever read as a unit buys nothing and costs joins, so the breakdowns are stored
-as a JSON column alongside the scalar metrics. If a query pattern emerges that needs
-them relationally, splitting them out is a contained change.
-
-**`precision` is a reserved word in MySQL.** The first schema generation failed with a
+query like "find runs where SpendVelocity caught more than 40." Normalising data that is
+only ever read as a unit buys nothing and costs joins, so the breakdowns are stored as a
+JSON column alongside the scalar metrics. If a query pattern emerges that needs them
+relationally, splitting them out is a contained change.
+`precision` is a reserved word in MySQL. The first schema generation failed with a
 syntax error. The fields are mapped to `precision_score` and `recall_score` via
-`@Column(name = ...)` while keeping their Java names. Worth noting that Hibernate
-logged the DDL failure as a warning and the application started anyway — a schema that
-failed to create does not stop startup, it breaks later at the first insert.
-
-**Entities are classes, not records.** JPA builds objects from database rows by
+`@Column(name = ...)` while keeping their Java names. Worth noting that Hibernate logged
+the DDL failure as a warning and the application started anyway — a schema that failed to
+create does not stop startup, it breaks later at the first insert.
+Entities are classes, not records. JPA builds objects from database rows by
 reflection, which requires a no-arg constructor and mutable fields. The API layer uses
 records and the persistence layer does not — different constraints, different tools.
 `ReplayRun`'s no-arg constructor is `protected` so only Hibernate can reach it.
-
-**Credentials are not in version control.** `application.properties` holds
+Enums are stored as strings, not ordinals. `@Enumerated(EnumType.STRING)` on
+`ReviewStatus` and `JobStatus` costs a few bytes per row and prevents the failure where
+inserting a value into the middle of an enum silently changes the meaning of every
+existing row.
+Nullable numerics are boxed deliberately. `precision`, `recall` and
+`anyActuallyFraud` are `Double` and `Boolean` rather than primitives, because null means
+"this file had no ground truth" — a different claim from zero or false.
+Credentials are not in version control. `application.properties` holds
 `${DB_PASSWORD}`; the real value lives in `application-local.properties`, which is
-gitignored. Deployment supplies the same variable through the environment rather than
-a file.
-
-### Authentication
-
+gitignored. Deployment supplies the same variable through the environment rather than a
+file.
+Authentication
 JWT bearer tokens, BCrypt password hashing, default-deny authorisation.
-
-**Default-deny.** The config ends with `anyRequest().authenticated()` and lists the
-public exceptions above it. The inverse — listing what is protected — means any
-endpoint added later is public until someone remembers to secure it. Ordering the
-rules this way makes forgetting fail closed.
-
-**Passwords are BCrypt-hashed, never stored or logged.** BCrypt is deliberately slow,
+Default-deny. The config ends with `anyRequest().authenticated()` and lists the
+public exceptions above it. The inverse — listing what is protected — means any endpoint
+added later is public until someone remembers to secure it. Ordering the rules this way
+makes forgetting fail closed.
+Passwords are BCrypt-hashed, never stored or logged. BCrypt is deliberately slow,
 which is a design goal rather than a flaw: it makes brute-forcing a stolen hash dump
 expensive. It also salts automatically, so two users with the same password produce
-different hashes — defeating rainbow tables and preventing an attacker from seeing
-which accounts share a password. The entity field is named `passwordHash` and has no
-setter, so there is no path that assigns a plaintext value to it.
-
-**Login does not distinguish "no such user" from "wrong password."** Separate messages
-would give an attacker a username enumeration oracle: probe with common usernames,
-watch which error comes back, then concentrate password attacks on accounts known to
-exist. Both cases return the same 401 and the same body.
-
-**Token failures are indistinguishable.** `usernameFrom` catches every parse and
+different hashes — defeating rainbow tables and preventing an attacker from seeing which
+accounts share a password. The entity field is named `passwordHash` and has no setter, so
+there is no path that assigns a plaintext value to it.
+Login does not distinguish "no such user" from "wrong password." Separate messages
+would give an attacker a username enumeration oracle: probe with common usernames, watch
+which error comes back, then concentrate password attacks on accounts known to exist.
+Both cases return the same 401 and the same body.
+Token failures are indistinguishable. `usernameFrom` catches every parse and
 verification failure — tampered signature, expiry, malformed input, null — and returns
-null in all cases. The caller treats that as unauthenticated. Reporting *why* a token
-was rejected gives an attacker free information about which part of their forgery
-failed.
-
-**The JWT filter authenticates but never rejects.** It reads the token, establishes
+null in all cases. The caller treats that as unauthenticated. Reporting why a token was
+rejected gives an attacker free information about which part of their forgery failed.
+The JWT filter authenticates but never rejects. It reads the token, establishes
 identity if it can, and always calls `chain.doFilter`. Rejection is the authorisation
-layer's job. Combining the two would make public endpoints impossible, since the
-filter cannot know whether the endpoint being requested requires a token.
-
-**CSRF protection is disabled, and that is safe here specifically because the token
-travels in a header.** CSRF attacks work by exploiting credentials the browser
-attaches automatically — cookies. An `Authorization` header is never sent
-automatically; a client must add it deliberately, and a cross-origin page cannot. If
-the token were moved to a cookie for convenience, CSRF protection would become
-mandatory again. The safety comes from the transport decision, not from JWT itself.
-
-**Sessions are disabled explicitly** (`SessionCreationPolicy.STATELESS`). Without
-this, Spring creates a session on first authentication and the result is a hybrid that
-is neither properly stateless nor properly session-based.
-
-**The signing secret is 48 random characters, gitignored, and injected from
-configuration.** The library rejects secrets under 32 bytes at startup rather than
-silently accepting a weak key. This secret is more dangerous than the database
-password: anyone holding it can mint a valid token for any user without touching the
-database.
-
-Verified by sending three requests to a protected endpoint: no token → 403, valid
-token → 200, token with one character altered → 403. The third is the test that
-matters — the first two only prove a header is being checked, while the third proves
-the signature is verified.
-
-#### The limitation this design accepts
-
-**Tokens cannot be revoked.** They are valid until they expire, sixty minutes after
+layer's job. Combining the two would make public endpoints impossible, since the filter
+cannot know whether the endpoint being requested requires a token.
+CSRF protection is disabled, and that is safe here specifically because the token
+travels in a header. CSRF attacks work by exploiting credentials the browser attaches
+automatically — cookies. An `Authorization` header is never sent automatically; a client
+must add it deliberately, and a cross-origin page cannot. If the token were moved to a
+cookie for convenience, CSRF protection would become mandatory again. The safety comes
+from the transport decision, not from JWT itself.
+Sessions are disabled explicitly (`SessionCreationPolicy.STATELESS`). Without this,
+Spring creates a session on first authentication and the result is a hybrid that is
+neither properly stateless nor properly session-based.
+The signing secret is 48 random characters, gitignored, and injected from
+configuration. The library rejects secrets under 32 bytes at startup rather than
+silently accepting a weak key. This secret is more dangerous than the database password:
+anyone holding it can mint a valid token for any user without touching the database.
+Verified by sending three requests to a protected endpoint: no token → 403, valid token →
+200, token with one character altered → 403. The third is the test that matters — the
+first two only prove a header is being checked, while the third proves the signature is
+verified.
+The limitation this design accepts
+Tokens cannot be revoked. They are valid until they expire, sixty minutes after
 issue. A user who logs out still holds a working token. An account disabled for abuse
-stays usable for up to an hour. This is inherent to stateless authentication — the
-server verifies a signature rather than consulting a store, which is exactly what
-makes it scale across instances without shared session state.
-
+stays usable for up to an hour. This is inherent to stateless authentication — the server
+verifies a signature rather than consulting a store, which is exactly what makes it scale
+across instances without shared session state.
 The mitigations each cost something:
-
-- **Short expiry** narrows the window but forces frequent re-authentication.
-- **Refresh tokens** improve the experience but move the revocation problem to a
-  longer-lived credential.
-- **A revocation list** works but reintroduces the shared state that statelessness was
-  meant to remove, and every request then pays a lookup.
-
+Short expiry narrows the window but forces frequent re-authentication.
+Refresh tokens improve the experience but move the revocation problem to a
+longer-lived credential.
+A revocation list works but reintroduces the shared state that statelessness was
+meant to remove, and every request then pays a lookup.
 Sixty minutes is a choice rather than a default worth defending: an internal analysis
-tool with a small user base and no destructive operations tolerates a one-hour
-revocation gap that a payments system would not.
-
-**A JWT is signed, not encrypted.** The header and payload are base64, readable by
-anyone holding the token. The signature proves it has not been altered; it does not
-hide the contents. Nothing sensitive goes in the payload — this one carries a username
-and two timestamps.
-
-### Known gaps in the API layer
-- **`ddl-auto=update` is development-only.** Hibernate alters the schema to match
-  entity classes at startup, never drops columns, and makes changes without asking, so
-  the schema drifts silently. A production version would use versioned migrations
-  (Flyway or Liquibase).
-- **The history endpoints return the entity directly**, coupling the API shape to the
-  database schema — renaming a column would be a breaking API change. A response DTO
-  is the correct fix.
-- **No token revocation.** See above — an accepted trade-off of stateless auth,
-  mitigated only by the 60-minute expiry.
-- **No rate limiting on login.** Nothing prevents unlimited password attempts against
-  a known username. BCrypt's cost factor slows each attempt but does not cap them.
-- **The web, security, and persistence layers have no tests.** Coverage is limited to
-  rule logic.
-
-## Corrections
-
-Four claims in earlier versions of this document were wrong. They are recorded rather
+tool with a small user base and no destructive operations tolerates a one-hour revocation
+gap that a payments system would not.
+A JWT is signed, not encrypted. The header and payload are base64, readable by anyone
+holding the token. The signature proves it has not been altered; it does not hide the
+contents. Nothing sensitive goes in the payload — this one carries a username and two
+timestamps.
+Known gaps in the API layer
+`ddl-auto=update` is development-only. Hibernate alters the schema to match entity
+classes at startup, never drops columns, and makes changes without asking, so the
+schema drifts silently. A production version would use versioned migrations (Flyway or
+Liquibase).
+The history endpoints return the entity directly, coupling the API shape to the
+database schema — renaming a column would be a breaking API change. A response DTO is
+the correct fix. The job endpoints do this correctly via `JobView`.
+403 is returned where 401 is meant. With no `AuthenticationEntryPoint` configured,
+Spring returns 403 for unauthenticated requests. 401 means "I don't know who you are"
+and 403 means "I know, and no" — conflating them makes debugging materially harder, as
+it did twice during development.
+Tenant isolation is enforced per-query, not structurally. Every repository method
+takes a username and every controller passes it from the security context, but that is
+a discipline rather than a guarantee: one method written without `AndUsername` and a
+user reads another's data. A Hibernate filter applied automatically is the correct fix
+and is next on the roadmap.
+No token revocation. See above — an accepted trade-off of stateless auth, mitigated
+only by the 60-minute expiry.
+No rate limiting on login. Nothing prevents unlimited password attempts against a
+known username. BCrypt's cost factor slows each attempt but does not cap them. Analysis
+submission is rate-limited only indirectly, by the bounded thread pool.
+The web, security, ingest, and persistence layers have no tests. Coverage is limited
+to rule logic.
+Corrections
+Claims in earlier versions of this document that were wrong. They are recorded rather
 than removed, because the corrections are the more useful content.
-
-**Geo-impossibility precision was an artifact.** The rule initially scored 37 true
-positives with 2 false positives and appeared to catch burst transactions as a bonus.
-It did not. Positional jitter was applied per transaction, so six burst transactions
-40 seconds apart sat up to 20km from each other — implying impossible speeds. Holding
-location fixed within a burst dropped the rule to 11 true positives and 1 false
-positive: exactly the pattern it was designed for, and nothing else. The apparent
-bonus detection was the generator, not the rule.
-
-**A hypothesis about rule overlap was half right.** With three rules, 18 transactions
+Geo-impossibility precision was an artifact. The rule initially scored 37 true
+positives with 2 false positives and appeared to catch burst transactions as a bonus. It
+did not. Positional jitter was applied per transaction, so six burst transactions 40
+seconds apart sat up to 20km from each other — implying impossible speeds. Holding
+location fixed within a burst dropped the rule to 11 true positives and 1 false positive:
+exactly the pattern it was designed for, and nothing else. The apparent bonus detection
+was the generator, not the rule.
+A hypothesis about rule overlap was half right. With three rules, 18 transactions
 fired more than one. The proposed explanation was that geo overlapped with velocity on
-bursts. Attribution showed 10 velocity+geo and 8 amount+geo — and the reasoning that
-had specifically ruled out amount+geo was wrong about which transactions were
-involved. Both groups were bursts, split by whether velocity had accumulated enough
-priors. Once the location artifact was fixed, all 18 overlaps disappeared.
-
-**The shopping-trip decoy tested nothing for several runs.** It was spaced 2 minutes
+bursts. Attribution showed 10 velocity+geo and 8 amount+geo — and the reasoning that had
+specifically ruled out amount+geo was wrong about which transactions were involved. Both
+groups were bursts, split by whether velocity had accumulated enough priors. Once the
+location artifact was fixed, all 18 overlaps disappeared.
+The shopping-trip decoy tested nothing for several runs. It was spaced 2 minutes
 apart against a 3-minute window, so at most one prior ever fell inside — no rule could
-fire on it. Reported precision of 0.99 was measured against a decoy population that
-was structurally invisible. Tightening to 45 seconds dropped precision to 0.65 and
-exposed the count-based velocity rule's real false-positive rate.
-
-**"Perfectly disjoint" was a small-sample claim.** Zero overlap held at 18,450
+fire on it. Reported precision of 0.99 was measured against a decoy population that was
+structurally invisible. Tightening to 45 seconds dropped precision to 0.65 and exposed
+the count-based velocity rule's real false-positive rate.
+"Perfectly disjoint" was a small-sample claim. Zero overlap held at 18,450
 transactions and was stated as a property of the rules. At 147,950 transactions, 9
 overlaps appear. The rules are near-disjoint, not disjoint.
-
-The common thread: **every suspiciously good result in this project turned out to be a
-property of the test data rather than the detection logic.** Precision above 0.95 was,
+The common thread: every suspiciously good result in this project turned out to be a
+property of the test data rather than the detection logic. Precision above 0.95 was,
 each time, a signal to inspect the generator.
-
-## Design notes
-- Rules sit behind a `Rule` interface with parameters injected via constructor. Adding
-  the third and fourth rules required no change to the replay loop, the confusion
-  matrix, the attribution report, or any other rule — one more entry in a list.
-- **Rules cannot read the fraud label — enforced by the type system, not by
-  convention.** `Transaction` carries `isFraud` and `fraudPattern`; rules receive a
-  `TransactionView`, which has neither. The replay loop strips the labels before rules
-  see the data and reads them only when scoring. A rule that peeks at the label scores
-  perfectly and proves nothing, and the failure is invisible because the output looks
-  excellent. Making it a compile error removes the possibility.
-- The replay loop appends each transaction to history *after* evaluating it, so no
-  rule can see the future. Reversing those two lines would inflate every metric here.
-- The loop evaluates every rule on every transaction rather than short-circuiting.
-  Wasted work for a boolean verdict, but a precondition for the attribution that
-  produced most of the findings above.
-- `AccountHistory` returns unmodifiable views. Rules receive history and must not
-  mutate it.
-- `SpendVelocityRule` excludes the transaction under judgment from the account
-  baseline while including it in the window total. Folding it into its own baseline
-  would dilute the signal being tested.
-- `AmountOutlierRule` uses a per-account baseline. A global average would judge a
-  customer who normally spends £15 and one who normally spends £200 by the same
-  yardstick.
-- Amount deviation is checked in both directions. Instinct says fraud means large
-  amounts, but card testing is anomalous on the *low* side.
-- `GeoImpossibilityRule` compares against the immediately previous transaction, not a
-  window. Implied speed is meaningful only between consecutive events. It uses
-  haversine rather than flat-plane distance — at Canadian latitudes a degree of
-  longitude is roughly 75km against 111km for latitude.
-- The geo rule guards against zero elapsed time. Identical timestamps would divide by
-  zero, produce `Infinity`, and flag every simultaneous pair.
-- `BigDecimal` for storing and summing money, converted to `double` for computing
-  means. Rounding error accumulates when summing balances; it is irrelevant when
-  asking whether a value is roughly 4x an average.
-- Timestamps are `Instant` in UTC. Generated transactions are sorted chronologically
-  before replay.
-
-## Tests
-
+The independent-file result of 0.978 precision sits in exactly that suspicious range, and
+the same discipline applies: it is high partly because that generator plants fraud in
+tighter clusters than this one does, which suits the velocity rule. It is evidence of
+generalisation, not proof of it.
+Design notes
+Rules sit behind a `Rule` interface with parameters injected via constructor. Adding
+the third and fourth rules required no change to the replay loop, the confusion matrix,
+the attribution report, or any other rule — one more entry in a list. Adding the
+ingestion path required no change to the rules at all.
+Rules cannot read the fraud label — enforced by the type system, not by convention.
+`Transaction` carries `isFraud` and `fraudPattern`; rules receive a `TransactionView`,
+which has neither. The replay loop strips the labels before rules see the data and reads
+them only when scoring. A rule that peeks at the label scores perfectly and proves
+nothing, and the failure is invisible because the output looks excellent. Making it a
+compile error removes the possibility.
+The replay loop appends each transaction to history after evaluating it, so no rule
+can see the future. Reversing those two lines would inflate every metric here.
+The loop evaluates every rule on every transaction rather than short-circuiting. Wasted
+work for a boolean verdict, but a precondition for the attribution that produced most of
+the findings above.
+`AccountHistory` returns unmodifiable views. Rules receive history and must not mutate
+it.
+`SpendVelocityRule` excludes the transaction under judgment from the account baseline
+while including it in the window total. Folding it into its own baseline would dilute
+the signal being tested.
+`AmountOutlierRule` uses a per-account baseline. A global average would judge a customer
+who normally spends £15 and one who normally spends £200 by the same yardstick.
+Amount deviation is checked in both directions. Instinct says fraud means large amounts,
+but card testing is anomalous on the low side.
+`GeoImpossibilityRule` compares against the immediately previous transaction, not a
+window. Implied speed is meaningful only between consecutive events. It uses haversine
+rather than flat-plane distance — at Canadian latitudes a degree of longitude is roughly
+75km against 111km for latitude.
+The geo rule guards against zero elapsed time. Identical timestamps would divide by
+zero, produce `Infinity`, and flag every simultaneous pair.
+`BigDecimal` for storing and summing money, converted to `double` for computing means.
+Rounding error accumulates when summing balances; it is irrelevant when asking whether a
+value is roughly 4x an average.
+Timestamps are `Instant` in UTC. Generated transactions are sorted chronologically
+before replay. Uploaded files are trusted to be chronological, which is a real
+assumption — see Known limitations.
+The alert list shows a true/false-positive verdict only when ground truth exists. A
+production system has no such column at alert time; that is the entire difficulty of
+fraud detection. The column is a property of this being a measurement tool, not a
+feature of the product.
+Tests
 22 unit tests across all four rules, running in well under a second. The rules have no
 framework dependencies — plain Java over an in-memory structure — so tests need no
 application context.
-
 What they pin:
-
-- **Threshold boundaries from both sides**, so the suite cannot pass against a rule
-  that flags everything.
-- **Account scoping on every rule.** Since the `AccountHistory` refactor this is
-  partly guaranteed by the structure, but a wrong `accountId` would still break it.
-- **Bidirectional amount deviation.** An implementation checking only the upper bound
-  fails, and it is the lower bound that catches card testing.
-- **Minimum-history and minimum-count guards**, pinning deliberate design decisions
-  rather than observed behaviour.
-- **Geo compares against the most recent prior, not the oldest.** An account that
-  travels Vancouver→Toronto overnight then moves across Toronto is legitimate against
-  the recent prior and impossible against the oldest.
-- **The zero-elapsed-time guard.**
-- **Spend velocity's core justification:** two tests with identical tempo — four
-  transactions ~40s apart — where one is 3x baseline and one is 0.9x. One fires, one
-  does not. The original count-based rule fires on both.
-
+Threshold boundaries from both sides, so the suite cannot pass against a rule that
+flags everything.
+Account scoping on every rule. Since the `AccountHistory` refactor this is partly
+guaranteed by the structure, but a wrong `accountId` would still break it.
+Bidirectional amount deviation. An implementation checking only the upper bound
+fails, and it is the lower bound that catches card testing.
+Minimum-history and minimum-count guards, pinning deliberate design decisions rather
+than observed behaviour.
+Geo compares against the most recent prior, not the oldest. An account that travels
+Vancouver→Toronto overnight then moves across Toronto is legitimate against the recent
+prior and impossible against the oldest.
+The zero-elapsed-time guard.
+Spend velocity's core justification: two tests with identical tempo — four
+transactions ~40s apart — where one is 3x baseline and one is 0.9x. One fires, one does
+not. The original count-based rule fires on both.
 Each test isolates one failure mode, so a red test names what broke. The suite was
 verified by deliberately removing an account filter and confirming exactly one test
 failed.
-
-It has since caught two refactors' worth of regressions in advance: the
-`TransactionView` change and the `AccountHistory` rewrite both touched the interface,
-every rule, the replay loop, and every test class, and in both cases combined metrics
-came out identical afterwards.
-
-## Known limitations
-- **`AccountHistory.since` assumes chronological insertion order** and walks backwards
-  from the end of each account's list. The replay loop guarantees this, but nothing
-  enforces it. This surfaced while updating the tests: a baseline built in descending
-  order silently read the wrong end. The optimisation traded a rule that filtered
-  defensively for one that trusts its input — faster, and more fragile.
-- Burst recall is 0.52. The opening transactions of each burst pass before enough
-  history accumulates, and no current rule addresses the head of an attack.
-- Legitimate behaviour is modelled by two patterns. Real traffic contains checkout
-  retries, split payments, and subscription batches that this dataset does not model,
-  so precision would degrade against production data.
-- Merchant-category anomalies are unimplemented. Scope was cut at four rules
-  deliberately: a fifth rule targeting a fifth planted pattern would not have changed
-  any conclusion here.
-- Alert severity is binary. Real systems score confidence and route accordingly.
-- `AccountHistory` holds every transaction in memory. Fine for a bounded replay,
-  unsuitable for an unbounded stream — a production version would evict outside the
-  widest rule window.
-
-## Stack
-Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Security, Spring Data JPA, MySQL 8.
-
-## Running
-
-**Console harness:** run `com.hassan.anomaly.Main`. Adjust the `accounts` constant at
-the top of `main` to change dataset size.
-
-**API:** requires MySQL running with a database named `anomaly_engine`. Create
-`src/main/resources/application-local.properties` with `spring.datasource.password`
-and a `jwt.secret` of at least 32 characters, then run
-`com.hassan.anomaly.AnomalyApplication` with `-Dspring.profiles.active=local`.
-
+It has since caught two refactors' worth of regressions in advance: the `TransactionView`
+change and the `AccountHistory` rewrite both touched the interface, every rule, the replay
+loop, and every test class, and in both cases combined metrics came out identical
+afterwards.
+The ingestion layer is not covered. Value coercion is the obvious gap — eleven date
+formats and the European decimal disambiguation are exactly the kind of logic that looks
+right and is not. Those tests are next.
+Known limitations
+`AccountHistory.since` assumes chronological insertion order and walks backwards
+from the end of each account's list. The replay loop guarantees this; an uploaded file
+does not. A CSV sorted by account rather than by time would produce wrong results
+silently rather than failing. Detecting out-of-order input during parsing is the fix and
+is not yet implemented.
+Uploaded files are stored on local disk between upload and analysis. This works on a
+single instance; behind a load balancer the analyse request could land on a machine that
+does not hold the file. S3 is the correct fix, deferred to deployment.
+Job filenames display the upload ID rather than the original filename, because the
+analyse request does not carry it forward from the upload preview. Cosmetic, and fixed
+alongside the upload interface.
+Alerts accumulate in memory during a run. The parser is bounded, but a file where
+most rows flag would still grow the alert list without limit.
+Burst recall is 0.52. The opening transactions of each burst pass before enough history
+accumulates, and no current rule addresses the head of an attack.
+Legitimate behaviour is modelled by two patterns. Real traffic contains checkout
+retries, split payments, and subscription batches that this dataset does not model, so
+precision would degrade against production data.
+Merchant-category anomalies are unimplemented. Scope was cut at four rules deliberately:
+a fifth rule targeting a fifth planted pattern would not have changed any conclusion
+here.
+The rules are threshold-based. On real labelled data at volume, a gradient-boosted
+model would very likely outperform them. Rules were chosen because every alert can state
+exactly why it fired, and because no real labelled dataset was available. That is a
+reasoned trade-off, not a claim that rules are better.
+`AccountHistory` holds every transaction in memory for generated replays. Fine for a
+bounded replay; the uploaded-file path uses the same structure and inherits the same
+ceiling on accounts, though not on transactions.
+Roadmap
+Tenant isolation enforced structurally via a Hibernate filter, with a test proving one
+user cannot read another's data
+Upload and column-mapping interface
+Run comparison — diff two configurations across precision, recall, and per-rule firing
+counts
+Coercion and parser test coverage
+Deployment to AWS with S3-backed upload storage
+CI running the test suite on every push
+Stack
+Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Security, Spring Data JPA, MySQL 8,
+Apache Commons CSV, React 18, Vite, React Router.
+Data
+City data derived from GeoNames, licensed under
+CC BY 4.0. Filtered to populated places in
+Canada with population ≥ 500.
+Running
+Console harness: run `com.hassan.anomaly.Main`. Adjust the `accounts` constant at the
+top of `main` to change dataset size.
+API: requires MySQL running with a database named `anomaly_engine`. Create
+`src/main/resources/application-local.properties` with `spring.datasource.password` and a
+`jwt.secret` of at least 32 characters, then run `com.hassan.anomaly.AnomalyApplication`
+with `-Dspring.profiles.active=local`.
 Register at `POST /api/auth/register`, then send the returned token as
 `Authorization: Bearer <token>` on protected endpoints.
-
+Interface:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Runs on `:5173` and expects the API on `:8080`.
 Tests run via `mvn test` or through the IDE.
