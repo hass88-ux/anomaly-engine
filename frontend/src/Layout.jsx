@@ -1,8 +1,9 @@
 import { NavLink, Outlet } from "react-router-dom";
-
 const NAV = [
+
   { to: "/", label: "Overview", end: true },
   { to: "/run", label: "Run a test" },
+  { to: "/upload", label: "Upload data" },
   { to: "/alerts", label: "Alerts" },
   { to: "/analysis", label: "Analysis" },
   { to: "/history", label: "History" },
