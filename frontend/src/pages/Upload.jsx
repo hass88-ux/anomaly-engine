@@ -81,6 +81,7 @@ export default function Upload({ onJobComplete }) {
     try {
       const { jobId } = await startAnalysis(preview.uploadId, {
         mapping,
+        filename: preview.originalName,
         ...config,
       });
 
@@ -376,9 +377,7 @@ export default function Upload({ onJobComplete }) {
                     {job.rowsAccepted.toLocaleString()}
                   </div>
                   {job.rowsRejected > 0 && (
-                    <div className="metric-note">
-                      {job.rowsRejected} rejected
-                    </div>
+                    <div className="metric-note">{job.rowsRejected} rejected</div>
                   )}
                 </div>
                 <div className="metric">

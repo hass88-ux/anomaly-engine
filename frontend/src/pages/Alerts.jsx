@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchReviews, setReview } from "../api";
+import { fetchReviews, setReview, fetchJobAlerts, fetchJob } from "../api";
 
 const money = new Intl.NumberFormat("en-CA", {
   style: "currency",
@@ -22,7 +22,7 @@ function when(value) {
       });
 }
 
-export default function Alerts({ lastResult }) {
+export default function Alerts({ lastResult, jobId }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [confidence, setConfidence] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -31,6 +31,10 @@ export default function Alerts({ lastResult }) {
   const [editingNote, setEditingNote] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [error, setError] = useState("");
+
+  const [jobData, setJobData] = useState(null);
+  const [jobMeta, setJobMeta] = useState(null);
+  const [loadingJob, setLoadingJob] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +55,50 @@ export default function Alerts({ lastResult }) {
     };
   }, []);
 
-  if (!lastResult) {
+  useEffect(() => {
+    if (!jobId) {
+      setJobData(null);
+      setJobMeta(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingJob(true);
+
+    Promise.all([fetchJobAlerts(jobId), fetchJob(jobId)])
+      .then(([alerts, meta]) => {
+        if (cancelled) return;
+        setJobData(alerts);
+        setJobMeta(meta);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingJob(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  const source = jobId ? jobData : lastResult;
+  const hasGroundTruth = jobId ? jobMeta?.hasGroundTruth !== false : true;
+  const sourceLabel = jobId ? jobMeta?.filename : "the last generated run";
+
+  if (loadingJob) {
+    return (
+      <div className="page">
+        <div className="page-head"><h1>Alerts</h1></div>
+        <div className="card">
+          <div className="empty"><h3>Loading alerts…</h3></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!source) {
     return (
       <div className="page">
         <div className="page-head">
@@ -62,17 +109,20 @@ export default function Alerts({ lastResult }) {
         </div>
         <div className="card">
           <div className="empty">
-            <h3>No test run yet</h3>
-            <p>Alerts appear here after a test.</p>
-            <Link className="btn" to="/run">Run a test</Link>
+            <h3>Nothing to show yet</h3>
+            <p>Run a test on generated data, or upload your own transactions.</p>
+            <div className="cta" style={{ justifyContent: "center" }}>
+              <Link className="btn" to="/run">Run a test</Link>
+              <Link className="btn-quiet" to="/upload">Upload data</Link>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  const all = lastResult.accountAlerts || [];
-  const total = lastResult.totalFlaggedAccounts || 0;
+  const all = source.accountAlerts || [];
+  const total = source.totalFlaggedAccounts || 0;
 
   function statusOf(accountId) {
     return reviews[accountId]?.status || "NEW";
@@ -150,10 +200,7 @@ export default function Alerts({ lastResult }) {
 
     setError("");
     setEditingNote(null);
-    setReviews((prev) => ({
-      ...prev,
-      [accountId]: { status, note },
-    }));
+    setReviews((prev) => ({ ...prev, [accountId]: { status, note } }));
 
     await persist(accountId, status, note, previous);
   }
@@ -180,14 +227,24 @@ export default function Alerts({ lastResult }) {
         </p>
       </div>
 
+      <div className="source-bar">
+        <span className="tag">{jobId ? "uploaded file" : "generated data"}</span>
+        <span className="help">Showing results from {sourceLabel}</span>
+        {jobId && !hasGroundTruth && (
+          <span className="help">
+            · no fraud label in this file, so alerts cannot be scored
+          </span>
+        )}
+      </div>
+
       {error && <div className="error">{error}</div>}
 
       {all.length === 0 ? (
         <div className="card">
           <div className="empty">
             <h3>Nothing flagged</h3>
-            <p>The last run produced no alerts. Loosen the thresholds and run again.</p>
-            <Link className="btn" to="/run">Adjust settings</Link>
+            <p>This run produced no alerts. Loosen the thresholds and try again.</p>
+            <Link className="btn" to={jobId ? "/upload" : "/run"}>Adjust settings</Link>
           </div>
         </div>
       ) : (
@@ -278,7 +335,7 @@ export default function Alerts({ lastResult }) {
                     {status !== "NEW" && (
                       <span className={`status-pill ${status.toLowerCase()}`}>{status}</span>
                     )}
-                    {note && <span className="note-dot" title="Has a note">note</span>}
+                    {note && <span className="note-dot">note</span>}
                   </span>
 
                   <span className="alert-facts">
@@ -295,7 +352,7 @@ export default function Alerts({ lastResult }) {
                   {account.rulesTriggered.map((rule) => (
                     <span className="tag" key={rule}>{rule}</span>
                   ))}
-                  {account.anyActuallyFraud && (
+                  {hasGroundTruth && account.anyActuallyFraud && (
                     <span className="tag truth">contains real fraud</span>
                   )}
                 </div>
@@ -339,9 +396,7 @@ export default function Alerts({ lastResult }) {
                   </p>
                 )}
 
-                {note && !isEditing && (
-                  <p className="note-text">{note}</p>
-                )}
+                {note && !isEditing && <p className="note-text">{note}</p>}
 
                 {isEditing && (
                   <div className="note-editor">
@@ -354,10 +409,7 @@ export default function Alerts({ lastResult }) {
                     />
                     <div className="note-actions">
                       <span className="help">{noteDraft.length}/500</span>
-                      <button
-                        className="review-btn"
-                        onClick={() => setEditingNote(null)}
-                      >
+                      <button className="review-btn" onClick={() => setEditingNote(null)}>
                         Cancel
                       </button>
                       <button
@@ -379,7 +431,7 @@ export default function Alerts({ lastResult }) {
                           <th>Amount</th>
                           <th>Location</th>
                           <th>Rules fired</th>
-                          <th>Verdict</th>
+                          {hasGroundTruth && <th>Verdict</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -388,17 +440,19 @@ export default function Alerts({ lastResult }) {
                             <td className="muted">{when(txn.occurredAt)}</td>
                             <td>{money.format(txn.amount)}</td>
                             <td>
-                              {txn.city}
-                              <span className="sub">{txn.province}</span>
+                              {txn.city || "—"}
+                              {txn.province && <span className="sub">{txn.province}</span>}
                             </td>
                             <td>
                               {txn.firedRules.map((rule) => (
                                 <span className="tag" key={rule}>{rule}</span>
                               ))}
                             </td>
-                            <td className={txn.actuallyFraud ? "hit" : "muted"}>
-                              {txn.actuallyFraud ? "true positive" : "false positive"}
-                            </td>
+                            {hasGroundTruth && (
+                              <td className={txn.actuallyFraud ? "hit" : "muted"}>
+                                {txn.actuallyFraud ? "true positive" : "false positive"}
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>

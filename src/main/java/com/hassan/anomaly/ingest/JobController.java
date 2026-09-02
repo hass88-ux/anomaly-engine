@@ -78,8 +78,12 @@ public class JobController {
             configJson = "{}";
         }
 
+        String safeName = request.filename() == null || request.filename().isBlank()
+                ? uploadId + ".csv"
+                : request.filename();
+
         AnalysisJob job = jobs.save(new AnalysisJob(
-                username, uploadId, uploadId + ".csv",
+                username, uploadId, safeName,
                 totalBytes, request.mapping().hasGroundTruth(), configJson));
 
         try {

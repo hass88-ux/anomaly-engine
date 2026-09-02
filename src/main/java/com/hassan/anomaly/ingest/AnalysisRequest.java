@@ -3,9 +3,12 @@ package com.hassan.anomaly.ingest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public record AnalysisRequest(
         @NotNull(message = "mapping is required") ColumnMapping mapping,
+
+        @Size(max = 255) String filename,
 
         @Min(2) @Max(20) int velocityMinCount,
         @Min(1) @Max(120) int velocityWindowMinutes,
@@ -17,6 +20,6 @@ public record AnalysisRequest(
         @Min(100) @Max(5000) double geoMaxSpeedKmh
 ) {
     public static AnalysisRequest defaults(ColumnMapping mapping) {
-        return new AnalysisRequest(mapping, 3, 3, 4.0, 4.0, 5, 900.0);
+        return new AnalysisRequest(mapping, null, 3, 3, 4.0, 4.0, 5, 900.0);
     }
 }
