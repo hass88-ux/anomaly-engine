@@ -360,20 +360,8 @@ td.muted { color: var(--text-muted); }
 .def h3 { margin-bottom: 4px; }
 .def p { margin: 0; color: var(--text-muted); }
 
-@media (max-width: 900px) {
-  .body { flex-direction: column; }
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
-    overflow-x: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .two-col { grid-template-columns: 1fr; }
-  .page { padding: 20px 16px 40px; }
-}
 /* ---------- alerts ---------- */
-.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .chip {
   background: #fff;
@@ -443,3 +431,75 @@ td.muted { color: var(--text-muted); }
 .alert-card .tag { margin-right: 4px; }
 
 td.hit { color: var(--success); font-weight: 500; }
+
+/* ---------- alert review ---------- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.filter-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  width: 74px;
+  flex-shrink: 0;
+}
+
+.status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.status-pill.reviewed { background: #eafaf3; border-color: #b7e5cf; color: var(--success); }
+.status-pill.escalated { background: #fdeaef; border-color: #f3c4d1; color: var(--danger); }
+.status-pill.dismissed { background: var(--bg); }
+
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.review-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.review-btn:hover { background: var(--bg); color: var(--text); }
+.review-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.review-btn:disabled { opacity: 0.5; }
+
+.alert-card.dimmed { opacity: 0.58; }
+.alert-card.dimmed:hover { opacity: 1; }
+
+@media (max-width: 900px) {
+  .body { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .two-col { grid-template-columns: 1fr; }
+  .page { padding: 20px 16px 40px; }
+  .alert-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .alert-facts { gap: 12px; }
+}

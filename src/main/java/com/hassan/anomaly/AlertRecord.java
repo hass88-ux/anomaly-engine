@@ -11,6 +11,8 @@ public record AlertRecord(
         BigDecimal amount,
         double latitude,
         double longitude,
+        String city,
+        String province,
         List<String> firedRules,
         boolean actuallyFraud
 ) {}

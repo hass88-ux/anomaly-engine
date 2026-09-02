@@ -17,10 +17,14 @@ public class ReplayService {
 
     private final ReplayRunRepository repository;
     private final ObjectMapper objectMapper;
+    private final CityGazetteer gazetteer;
 
-    public ReplayService(ReplayRunRepository repository, ObjectMapper objectMapper) {
+    public ReplayService(ReplayRunRepository repository,
+                         ObjectMapper objectMapper,
+                         CityGazetteer gazetteer) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.gazetteer = gazetteer;
     }
 
     public ReplayResult run(ReplayRequest request, String username) {
@@ -55,9 +59,11 @@ public class ReplayService {
             }
 
             if (!fired.isEmpty()) {
+                Cities.City where = gazetteer.nearest(txn.latitude(), txn.longitude());
                 alerts.add(new AlertRecord(
                         txn.id(), txn.accountId(), txn.occurredAt(), txn.amount(),
                         txn.latitude(), txn.longitude(),
+                        where.name(), where.province(),
                         List.copyOf(fired), txn.isFraud()));
             }
 

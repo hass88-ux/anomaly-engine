@@ -62,3 +62,14 @@ export function runReplay(params) {
 export function fetchHistory() {
   return request("/replay/history");
 }
+
+export function fetchReviews() {
+  return request("/reviews");
+}
+
+export function setReview(accountId, status, note = null) {
+  return request(`/reviews/${encodeURIComponent(accountId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ status, note }),
+  });
+}
