@@ -23,6 +23,11 @@ export default function Manual() {
           deliberately planted inside them. Because it knows exactly which transactions
           are fraudulent, it can measure a rule's accuracy the instant it runs.
         </p>
+        <p>
+          Once the rules are calibrated that way, you can point them at a file of your
+          own — where no fraud label exists, and the tool's job changes from measuring
+          itself to producing a queue worth working through.
+        </p>
       </section>
 
       <section className="card prose">
@@ -49,6 +54,11 @@ export default function Manual() {
           business decision about what a missed fraud costs versus what an investigation
           costs. The <Link to="/analysis">Analysis</Link> page makes that curve visible.
         </p>
+        <p>
+          <strong>Neither can be computed without ground truth.</strong> An uploaded file
+          with no fraud label shows both as a dash rather than as zero. Zero would be a
+          claim; a dash is the truth.
+        </p>
       </section>
 
       <section className="card prose">
@@ -58,8 +68,8 @@ export default function Manual() {
           <p>
             Flags an account that spends far more than its own average across a short
             window. Catches a stolen card being drained quickly. Note it compares each
-            account against <em>itself</em> — someone who normally spends £15 and
-            someone who normally spends £200 are judged by different standards.
+            account against <em>itself</em> — someone who normally spends $15 and
+            someone who normally spends $200 are judged by different standards.
           </p>
         </div>
         <div className="def">
@@ -67,7 +77,9 @@ export default function Manual() {
           <p>
             Flags a single transaction far above or below the account's normal size.
             The lower bound matters as much as the upper: thieves test a stolen card
-            with tiny purchases before using it properly.
+            with tiny purchases before using it properly. This is why some alerts show a
+            total of twenty dollars across eight transactions — that is the signal, not a
+            rounding error.
           </p>
         </div>
         <div className="def">
@@ -75,13 +87,15 @@ export default function Manual() {
           <p>
             Flags a card used in two places too far apart to travel between in the time
             elapsed. A purchase in Toronto and another in Vancouver 25 minutes later
-            implies about 8,000 km/h, so one of them is not the cardholder.
+            implies about 8,000 km/h, so one of them is not the cardholder. Skipped
+            entirely when a file has no coordinates.
           </p>
         </div>
       </section>
 
       <section className="card prose">
         <h2>The four attack patterns</h2>
+        <p>These exist in the generated data only. Your own file contains whatever it contains.</p>
         <table>
           <thead>
             <tr><th>Pattern</th><th>What it looks like</th><th>Why it is here</th></tr>
@@ -117,6 +131,52 @@ export default function Manual() {
       </section>
 
       <section className="card prose">
+        <h2>Uploading your own file</h2>
+        <p>
+          A CSV needs three things: an account identifier, a timestamp, and an amount.
+          Latitude and longitude are optional and enable the impossible-travel rule. A
+          fraud label is optional and is what makes a run scoreable.
+        </p>
+        <p>
+          Column names are detected from your header row and shown for confirmation
+          alongside five sample rows. <strong>Check them.</strong> Analysing against the
+          wrong amount column produces output that looks entirely convincing and is
+          entirely wrong.
+        </p>
+        <p>
+          Values are coerced rather than demanded in a fixed format. Currency symbols and
+          thousands separators are stripped, eleven date formats are tried along with Unix
+          timestamps, and both <code>1,234.56</code> and <code>1.234,56</code> are read
+          correctly. Rows that cannot be parsed are skipped and listed afterwards by line
+          number — three broken rows in a twenty-thousand-row file cost you three rows,
+          not the file.
+        </p>
+        <p>
+          Files are held only for as long as the analysis takes, then deleted.
+        </p>
+      </section>
+
+      <section className="card prose">
+        <h2>Working the alert queue</h2>
+        <p>
+          Flagged transactions are grouped by account and ranked by confidence. Two or
+          more distinct rules firing on one account is the strongest signal, because the
+          rules detect different things — agreement between them means something.
+        </p>
+        <p>
+          Each account can be marked <strong>reviewed</strong>, <strong>escalated</strong>{" "}
+          or <strong>dismissed</strong>, with an optional note. Decisions are saved to your
+          account and survive between sessions. Clicking a status you have already set
+          clears it.
+        </p>
+        <p>
+          A note attaches to a decision, so the note button stays disabled until you have
+          made one. There is nowhere to store a note about an account you have not
+          judged yet.
+        </p>
+      </section>
+
+      <section className="card prose">
         <h2>How to use it</h2>
         <ol className="steps">
           <li>
@@ -133,6 +193,9 @@ export default function Manual() {
             <strong>Change the dataset seed</strong> and re-run your best configuration.
             A finding that disappears under a different seed was never real.
           </li>
+          <li>
+            <strong>Then upload your own file</strong> with the thresholds you settled on.
+          </li>
         </ol>
       </section>
 
@@ -140,9 +203,9 @@ export default function Manual() {
         <h2>Honest limitations</h2>
         <ul>
           <li>
-            The data is synthetic. Real transaction traffic contains checkout retries,
-            split payments and subscription batches that this does not model, so
-            precision here is optimistic.
+            The generated data is synthetic. Real transaction traffic contains checkout
+            retries, split payments and subscription batches that this does not model, so
+            precision on it is optimistic.
           </li>
           <li>
             Fraud is held near 1% of transactions, roughly in line with published card
@@ -152,6 +215,16 @@ export default function Manual() {
             Three rules cannot catch everything. Some planted fraud is invisible to all
             of them by design — a tool that scored perfectly would be measuring its own
             assumptions.
+          </li>
+          <li>
+            Thresholds calibrated on one dataset can be wrong for another. The defaults
+            assume intercontinental impossible travel; a file where the furthest hop is
+            Toronto to Ottawa will never trigger that rule at 900 km/h.
+          </li>
+          <li>
+            The rules are threshold-based. On real labelled data at volume, a trained
+            model would very likely do better. Rules were chosen because every alert can
+            state exactly why it fired.
           </li>
         </ul>
       </section>

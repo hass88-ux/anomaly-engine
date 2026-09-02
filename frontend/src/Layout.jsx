@@ -1,3 +1,4 @@
+import Logo from "./Logo";
 import { NavLink, Outlet } from "react-router-dom";
 const NAV = [
 
@@ -14,8 +15,8 @@ export default function Layout({ username, onLogout }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">
-          <span className="mark">AE</span>
+               <div className="brand">
+          <Logo size={28} />
           <span>Anomaly Engine</span>
         </div>
         <nav className="topbar-nav">

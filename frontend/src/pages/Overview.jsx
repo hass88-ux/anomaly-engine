@@ -6,40 +6,72 @@ export default function Overview({ username, lastResult }) {
       <div className="page-head">
         <h1>Welcome back, {username}</h1>
         <p className="page-sub">
-          This tool replays synthetic card transactions through fraud detection rules
-          and measures how well they perform.
+          Run fraud detection rules against your own transaction files, or against
+          generated data where the answer is known so the rules can be measured.
         </p>
       </div>
 
       {!lastResult ? (
-        <div className="card intro">
-          <h2>Start here</h2>
-          <ol className="steps">
-            <li>
-              <strong>Run a test.</strong> Generates a dataset of transactions with
-              fraud deliberately planted, then runs the rules against it.
-            </li>
-            <li>
-              <strong>Read the results.</strong> Because the fraud is planted, the tool
-              knows exactly what it should have caught — so accuracy is measured, not
-              estimated.
-            </li>
-            <li>
-              <strong>Tune and compare.</strong> Adjust a rule, run again, and see what
-              you gained and what it cost.
-            </li>
-          </ol>
-          <div className="cta">
-            <Link className="btn" to="/run">Run your first test</Link>
-            <Link className="btn-quiet" to="/manual">Read the manual</Link>
+        <>
+          <div className="two-col">
+            <div className="card intro">
+              <h2>Analyse your own data</h2>
+              <p className="plain">
+                Upload a CSV of transactions. Columns are detected automatically, values
+                are coerced from whatever format they arrive in, and malformed rows are
+                reported by line number rather than failing the file.
+              </p>
+              <p className="help" style={{ marginBottom: 18 }}>
+                Needs an account identifier, a timestamp and an amount. Everything else is
+                optional.
+              </p>
+              <Link className="btn" to="/upload">Upload a file</Link>
+            </div>
+
+            <div className="card intro">
+              <h2>Or measure the rules first</h2>
+              <p className="plain">
+                Generated data has fraud deliberately planted inside it, so the tool knows
+                exactly what it should have caught. That is the only way to know whether a
+                threshold change helped or hurt.
+              </p>
+              <p className="help" style={{ marginBottom: 18 }}>
+                Worth doing before pointing the rules at data you care about.
+              </p>
+              <Link className="btn-quiet" to="/run">Run a test</Link>
+            </div>
           </div>
-        </div>
+
+          <div className="card intro">
+            <h2>How the two fit together</h2>
+            <ol className="steps">
+              <li>
+                <strong>Calibrate on generated data.</strong> Precision and recall are
+                computable because the ground truth is known.
+              </li>
+              <li>
+                <strong>Carry those thresholds to your own file.</strong> Real exports have
+                no fraud label, so alerts can be produced but not scored.
+              </li>
+              <li>
+                <strong>Work the queue.</strong> Mark accounts reviewed, escalated or
+                dismissed, with notes. Decisions are saved to your account.
+              </li>
+            </ol>
+            <div className="cta">
+              <Link className="btn-quiet" to="/manual">Read the manual</Link>
+            </div>
+          </div>
+        </>
       ) : (
         <>
           <div className="card">
             <div className="card-head">
               <h2>Last test</h2>
-              <Link className="btn-quiet" to="/run">Run another</Link>
+              <div className="cta" style={{ marginTop: 0 }}>
+                <Link className="btn-quiet" to="/run">Run another</Link>
+                <Link className="btn-quiet" to="/upload">Upload a file</Link>
+              </div>
             </div>
 
             <p className="plain">
@@ -68,6 +100,10 @@ export default function Overview({ username, lastResult }) {
             <Link className="tile" to="/alerts">
               <h3>Alerts</h3>
               <p>Accounts flagged in this run, with the evidence behind each</p>
+            </Link>
+            <Link className="tile" to="/upload">
+              <h3>Upload data</h3>
+              <p>Point these rules at a CSV of your own transactions</p>
             </Link>
             <Link className="tile" to="/analysis">
               <h3>Analysis</h3>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchReviews, setReview, fetchJobAlerts, fetchJob } from "../api";
 
@@ -35,6 +35,10 @@ export default function Alerts({ lastResult, jobId }) {
   const [jobData, setJobData] = useState(null);
   const [jobMeta, setJobMeta] = useState(null);
   const [loadingJob, setLoadingJob] = useState(false);
+
+  const [cursor, setCursor] = useState(0);
+  const [showKeys, setShowKeys] = useState(false);
+  const rowRefs = useRef({});
 
   useEffect(() => {
     let cancelled = false;
@@ -87,42 +91,8 @@ export default function Alerts({ lastResult, jobId }) {
   const hasGroundTruth = jobId ? jobMeta?.hasGroundTruth !== false : true;
   const sourceLabel = jobId ? jobMeta?.filename : "the last generated run";
 
-  if (loadingJob) {
-    return (
-      <div className="page">
-        <div className="page-head"><h1>Alerts</h1></div>
-        <div className="card">
-          <div className="empty"><h3>Loading alerts…</h3></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!source) {
-    return (
-      <div className="page">
-        <div className="page-head">
-          <h1>Alerts</h1>
-          <p className="page-sub">
-            Accounts flagged by the rules, with the transactions that triggered each flag.
-          </p>
-        </div>
-        <div className="card">
-          <div className="empty">
-            <h3>Nothing to show yet</h3>
-            <p>Run a test on generated data, or upload your own transactions.</p>
-            <div className="cta" style={{ justifyContent: "center" }}>
-              <Link className="btn" to="/run">Run a test</Link>
-              <Link className="btn-quiet" to="/upload">Upload data</Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const all = source.accountAlerts || [];
-  const total = source.totalFlaggedAccounts || 0;
+  const all = source?.accountAlerts || [];
+  const total = source?.totalFlaggedAccounts || 0;
 
   function statusOf(accountId) {
     return reviews[accountId]?.status || "NEW";
@@ -205,6 +175,99 @@ export default function Alerts({ lastResult, jobId }) {
     await persist(accountId, status, note, previous);
   }
 
+  const handleKey = useCallback(
+    (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+
+      if (key === "?" || (key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setShowKeys((v) => !v);
+        return;
+      }
+      if (key === "escape") {
+        setShowKeys(false);
+        return;
+      }
+      if (!shown.length) return;
+
+      const current = shown[Math.min(cursor, shown.length - 1)];
+      if (!current) return;
+
+      if (key === "j" || key === "arrowdown") {
+        e.preventDefault();
+        setCursor((c) => Math.min(c + 1, shown.length - 1));
+      } else if (key === "k" || key === "arrowup") {
+        e.preventDefault();
+        setCursor((c) => Math.max(c - 1, 0));
+      } else if (key === "enter" || key === " ") {
+        e.preventDefault();
+        toggle(current.accountId);
+      } else if (key === "r") {
+        mark(current.accountId, "REVIEWED");
+      } else if (key === "e") {
+        mark(current.accountId, "ESCALATED");
+      } else if (key === "d") {
+        mark(current.accountId, "DISMISSED");
+      } else if (key === "n") {
+        if (statusOf(current.accountId) !== "NEW") startNote(current.accountId);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shown, cursor, reviews, editingNote]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [handleKey]);
+
+  useEffect(() => {
+    const node = rowRefs.current[shown[cursor]?.accountId];
+    if (node) node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor]);
+
+  useEffect(() => {
+    setCursor(0);
+  }, [confidence, statusFilter, jobId]);
+
+  if (loadingJob) {
+    return (
+      <div className="page">
+        <div className="page-head"><h1>Alerts</h1></div>
+        <div className="card">
+          <div className="empty"><h3>Loading alerts</h3></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!source) {
+    return (
+      <div className="page">
+        <div className="page-head">
+          <h1>Alerts</h1>
+          <p className="page-sub">
+            Accounts flagged by the rules, with the transactions that triggered each flag.
+          </p>
+        </div>
+        <div className="card">
+          <div className="empty">
+            <h3>Nothing to show yet</h3>
+            <p>Run a test on generated data, or upload your own transactions.</p>
+            <div className="cta" style={{ justifyContent: "center" }}>
+              <Link className="btn" to="/run">Run a test</Link>
+              <Link className="btn-quiet" to="/upload">Upload data</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const confidenceCounts = {
     HIGH: all.filter((a) => a.confidence === "HIGH").length,
     MEDIUM: all.filter((a) => a.confidence === "MEDIUM").length,
@@ -236,6 +299,36 @@ export default function Alerts({ lastResult, jobId }) {
           </span>
         )}
       </div>
+
+      <p className="key-hint">
+        Press <kbd>?</kbd> for keyboard shortcuts
+      </p>
+
+      {showKeys && (
+        <div className="key-overlay" onClick={() => setShowKeys(false)}>
+          <div className="key-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="key-panel-head">
+              <h2>Keyboard shortcuts</h2>
+              <button className="review-btn" onClick={() => setShowKeys(false)}>
+                Close
+              </button>
+            </div>
+            <dl className="key-list">
+              <div><dt><kbd>J</kbd> <kbd>↓</kbd></dt><dd>Next alert</dd></div>
+              <div><dt><kbd>K</kbd> <kbd>↑</kbd></dt><dd>Previous alert</dd></div>
+              <div><dt><kbd>Enter</kbd></dt><dd>Expand or collapse</dd></div>
+              <div><dt><kbd>R</kbd></dt><dd>Mark reviewed</dd></div>
+              <div><dt><kbd>E</kbd></dt><dd>Escalate</dd></div>
+              <div><dt><kbd>D</kbd></dt><dd>Dismiss</dd></div>
+              <div><dt><kbd>N</kbd></dt><dd>Add a note</dd></div>
+              <div><dt><kbd>?</kbd></dt><dd>This panel</dd></div>
+            </dl>
+            <p className="help">
+              Pressing a status key that is already set clears it, the same as clicking.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -318,12 +411,16 @@ export default function Alerts({ lastResult, jobId }) {
             const note = noteOf(account.accountId);
             const busy = saving.has(account.accountId);
             const isEditing = editingNote === account.accountId;
+            const isCursor = shown[cursor]?.accountId === account.accountId;
 
             return (
               <div
-                className={
-                  status === "DISMISSED" ? "card alert-card dimmed" : "card alert-card"
-                }
+                ref={(el) => { rowRefs.current[account.accountId] = el; }}
+                className={[
+                  "card alert-card",
+                  status === "DISMISSED" ? "dimmed" : "",
+                  isCursor ? "cursor" : "",
+                ].filter(Boolean).join(" ")}
                 key={account.accountId}
               >
                 <button className="alert-head" onClick={() => toggle(account.accountId)}>
@@ -386,7 +483,7 @@ export default function Alerts({ lastResult, jobId }) {
                     {note ? "Edit note" : "Add note"}
                   </button>
 
-                  {busy && <span className="help">saving…</span>}
+                  {busy && <span className="help">saving</span>}
                 </div>
 
                 {status === "NEW" && (
@@ -404,6 +501,7 @@ export default function Alerts({ lastResult, jobId }) {
                       value={noteDraft}
                       maxLength={500}
                       rows={3}
+                      autoFocus
                       placeholder="Why did you make this call?"
                       onChange={(e) => setNoteDraft(e.target.value)}
                     />

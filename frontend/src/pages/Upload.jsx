@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadFile, startAnalysis, fetchJob } from "../api";
+import ChartLoader from "../ChartLoader";
 
 const FIELDS = [
   { key: "accountId", label: "Account", required: true,
@@ -168,7 +169,7 @@ export default function Upload({ onJobComplete }) {
       {stage === "uploading" && (
         <div className="card">
           <div className="empty">
-            <h3>Reading the file…</h3>
+            <h3>Reading the file</h3>
             <p>Only the header and first few rows are read at this stage.</p>
           </div>
         </div>
@@ -344,23 +345,17 @@ export default function Upload({ onJobComplete }) {
               ? "Analysis complete"
               : job?.status === "FAILED"
               ? "Analysis failed"
-              : "Analysing…"}
+              : "Analysing"}
           </h2>
 
-          <div className="progress-track">
-            <div
-              className={
-                job?.status === "FAILED" ? "progress-fill failed" : "progress-fill"
-              }
-              style={{ width: `${job?.percentComplete || 0}%` }}
-            />
-          </div>
-
-          <p className="help">
-            {job
-              ? `${job.percentComplete}% · ${job.rowsRead.toLocaleString()} rows read`
-              : "Starting…"}
-          </p>
+          <ChartLoader
+            percent={job?.percentComplete ?? 0}
+            label={
+              job
+                ? `${job.percentComplete}% · ${job.rowsRead.toLocaleString()} rows read`
+                : "Starting"
+            }
+          />
 
           {job?.status === "FAILED" && (
             <div className="error" style={{ marginTop: 16 }}>

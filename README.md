@@ -597,8 +597,8 @@ only by the 60-minute expiry.
 No rate limiting on login. Nothing prevents unlimited password attempts against a
 known username. BCrypt's cost factor slows each attempt but does not cap them. Analysis
 submission is rate-limited only indirectly, by the bounded thread pool.
-The web, security, ingest, and persistence layers have no tests. Coverage is limited
-to rule logic.
+The web, security and persistence layers have no tests. Coverage is rule logic,
+tenant isolation, and value coercion.
 Corrections
 Claims in earlier versions of this document that were wrong. They are recorded rather
 than removed, because the corrections are the more useful content.
@@ -674,9 +674,11 @@ production system has no such column at alert time; that is the entire difficult
 fraud detection. The column is a property of this being a measurement tool, not a
 feature of the product.
 Tests
-22 unit tests across all four rules plus four tenant isolation tests, running in well
-under a second. The rules have no framework dependencies — plain Java over an in-memory
-structure — so the rule tests need no application context.
+65 tests: 22 unit tests across the four rules, four tenant isolation tests against an
+in-memory database, and the remainder covering value coercion — the parsing layer that
+turns whatever a file contains into typed values. The rules have no framework
+dependencies — plain Java over an in-memory structure — so their tests need no
+application context and run in well under a second.
 What they pin:
 Threshold boundaries from both sides, so the suite cannot pass against a rule that
 flags everything.
@@ -706,9 +708,12 @@ deliberately documents a failure of the filter — `findById` returning another 
 row — because pinning a known gap is more useful than a suite that passes for reasons
 nobody checked. That gap was found by writing the test, not by reading the
 documentation.
-The ingestion layer is not covered. Value coercion is the obvious gap — eleven date
-formats and the European decimal disambiguation are exactly the kind of logic that looks
-right and is not. Those tests are next.
+Coercion is covered thoroughly, the rest of ingestion is not. `ValueCoercionTest`
+pins the European decimal disambiguation, all eleven date formats, epoch seconds versus
+milliseconds, accounting-style negatives, and every recognised boolean spelling — the
+logic most likely to be quietly wrong, because it looks right and only fails on data you
+have not tried. `TransactionParser`, `ColumnDetector` and the job lifecycle remain
+untested.
 Known limitations
 `AccountHistory.since` assumes chronological insertion order and walks backwards
 from the end of each account's list. The replay loop guarantees this; an uploaded file
@@ -739,9 +744,9 @@ reasoned trade-off, not a claim that rules are better.
 bounded replay; the uploaded-file path uses the same structure and inherits the same
 ceiling on accounts, though not on transactions.
 Roadmap
-Coercion and parser test coverage
 Run comparison — diff two configurations across precision, recall, and per-rule firing
 counts
+Parser and column-detector test coverage
 Persist the active job across a page refresh
 Deployment to AWS with S3-backed upload storage
 CI running the test suite on every push

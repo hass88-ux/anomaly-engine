@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { login, register } from "./api";
+import Logo from "./Logo";
+import ChartLoader from "./ChartLoader";
 
 const DEMO = { username: "demo", password: "Demopass123!" };
 
@@ -18,6 +21,7 @@ export default function Login({ onAuthenticated }) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("");
 
   const passwordOk = RULES.every((r) => r.test(password));
   const matches = password.length > 0 && password === confirm;
@@ -47,6 +51,7 @@ export default function Login({ onAuthenticated }) {
     }
 
     setBusy(true);
+    setBusyLabel(isRegistering ? "Creating your account…" : "Signing you in…");
     setError("");
     try {
       const result = isRegistering
@@ -61,6 +66,7 @@ export default function Login({ onAuthenticated }) {
 
   async function tryDemo() {
     setBusy(true);
+    setBusyLabel("Opening the demo account…");
     setError("");
     try {
       store(await login(DEMO.username, DEMO.password));
@@ -84,76 +90,95 @@ export default function Login({ onAuthenticated }) {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <h1>Anomaly Engine</h1>
+        <Link to="/" className="login-brand">
+          <Logo size={30} />
+          <span>Anomaly Engine</span>
+        </Link>
+
+        <h1>{isRegistering ? "Create an account" : "Sign in"}</h1>
         <p className="subtitle">
           {isRegistering
-            ? "Create an account to save your runs"
-            : "Sign in to tune fraud detection rules"}
+            ? "Your runs, alerts and review decisions are saved to your account."
+            : "Pick up where you left off — your runs and reviews are waiting."}
         </p>
 
-        <label>Username</label>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          autoFocus
-        />
-
-        <label>Password</label>
-        {isRegistering && (
-          <p className="hint">
-            8+ characters, with an uppercase letter, a lowercase letter, a number,
-            and a symbol.
-          </p>
-        )}
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-
-        {isRegistering && (
+        {busy ? (
+          <div className="login-busy">
+            <ChartLoader label={busyLabel} />
+          </div>
+        ) : (
           <>
-            <ul className="rules">
-              {RULES.map((r) => (
-                <li key={r.label} className={r.test(password) ? "met" : ""}>
-                  <span className="tick">{r.test(password) ? "✓" : "○"}</span>
-                  {r.label}
-                </li>
-              ))}
-            </ul>
-
-            <label>Confirm password</label>
+            <label htmlFor="username">Username</label>
             <input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              autoFocus
+            />
+
+            <label htmlFor="password">Password</label>
+            {isRegistering && (
+              <p className="hint">
+                8+ characters, with an uppercase letter, a lowercase letter, a number,
+                and a symbol.
+              </p>
+            )}
+            <input
+              id="password"
               type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
             />
-            {confirm.length > 0 && !matches && (
-              <p className="mismatch">Passwords do not match</p>
+
+            {isRegistering && (
+              <>
+                <ul className="rules">
+                  {RULES.map((r) => (
+                    <li key={r.label} className={r.test(password) ? "met" : ""}>
+                      <span className="tick">{r.test(password) ? "✓" : "○"}</span>
+                      {r.label}
+                    </li>
+                  ))}
+                </ul>
+
+                <label htmlFor="confirm">Confirm password</label>
+                <input
+                  id="confirm"
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submit()}
+                />
+                {confirm.length > 0 && !matches && (
+                  <p className="mismatch">Passwords do not match</p>
+                )}
+              </>
             )}
+
+            {error && <div className="error">{error}</div>}
+
+            <button onClick={submit}>
+              {isRegistering ? "Create account" : "Sign in"}
+            </button>
+
+            <button className="link" onClick={toggleMode}>
+              {isRegistering
+                ? "Already have an account? Sign in"
+                : "Need an account? Register"}
+            </button>
+
+            <div className="divider"><span>or</span></div>
+
+            <button className="secondary" onClick={tryDemo}>
+              Try the demo
+            </button>
+            <p className="help demo-note">
+              A shared account with sample data — no signup needed.
+            </p>
           </>
         )}
-
-        {error && <div className="error">{error}</div>}
-
-        <button onClick={submit} disabled={busy}>
-          {busy ? "Working…" : isRegistering ? "Create account" : "Sign in"}
-        </button>
-
-        <button className="link" onClick={toggleMode}>
-          {isRegistering
-            ? "Already have an account? Sign in"
-            : "Need an account? Register"}
-        </button>
-
-        <div className="divider"><span>or</span></div>
-
-        <button className="secondary" onClick={tryDemo} disabled={busy}>
-          Try the demo
-        </button>
       </div>
     </div>
   );

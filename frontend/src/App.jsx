@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Landing from "./pages/Landing";
+import Guide from "./pages/Guide";
 import Login from "./Login";
 import Layout from "./Layout";
 import Overview from "./pages/Overview";
@@ -38,12 +40,22 @@ export default function App() {
   }
 
   if (!username) {
-    return <Login onAuthenticated={setUsername} />;
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/guide" element={<Guide />} />
+          <Route path="/login" element={<Login onAuthenticated={setUsername} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    );
   }
 
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/guide" element={<Guide />} />
         <Route element={<Layout username={username} onLogout={logout} />}>
           <Route index element={<Overview username={username} lastResult={lastResult} />} />
           <Route path="run" element={
