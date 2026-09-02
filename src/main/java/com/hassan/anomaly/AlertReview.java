@@ -1,6 +1,9 @@
 package com.hassan.anomaly;
 
 import java.time.Instant;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,6 +21,7 @@ import jakarta.persistence.UniqueConstraint;
     uniqueConstraints = @UniqueConstraint(
         name = "uk_alert_review_user_account",
         columnNames = { "username", "account_id" }))
+@Filter(name = "tenantFilter", condition = "username = :tenantUsername")
 public class AlertReview {
 
     @Id

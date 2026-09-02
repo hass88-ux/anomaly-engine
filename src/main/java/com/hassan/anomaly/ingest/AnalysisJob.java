@@ -1,6 +1,9 @@
 package com.hassan.anomaly.ingest;
 
 import java.time.Instant;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -17,6 +20,8 @@ import jakarta.persistence.Table;
 @Table(
     name = "analysis_job",
     indexes = @Index(name = "idx_analysis_job_user", columnList = "username, created_at"))
+
+	@Filter(name = "tenantFilter", condition = "username = :tenantUsername")
 public class AnalysisJob {
 
     @Id

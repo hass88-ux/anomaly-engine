@@ -12,10 +12,10 @@ Against an independently generated file: precision 0.978, recall 0.538 across
 20,195 transactions written by a different program with different fraud shapes,
 amount distributions, and geography.
 Status
-Engine complete (tagged `v1-engine`). REST API with MySQL persistence and JWT
-authentication complete. React interface complete for tuning, results, and alert
-review. CSV upload with async analysis complete at the API layer; its interface is in
-progress. Deployment to follow.
+Engine complete (tagged `v1-engine`). REST API with MySQL persistence, JWT
+authentication and Hibernate-enforced tenant isolation complete. React interface
+complete for tuning, results, and alert review. CSV upload with async analysis complete
+at the API layer; its interface is in progress. Deployment to follow.
 Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
 its own accuracy in the moment. Generating the data means ground truth is known at
@@ -569,11 +569,15 @@ the correct fix. The job endpoints do this correctly via `JobView`.
 Spring returns 403 for unauthenticated requests. 401 means "I don't know who you are"
 and 403 means "I know, and no" — conflating them makes debugging materially harder, as
 it did twice during development.
-Tenant isolation is enforced per-query, not structurally. Every repository method
-takes a username and every controller passes it from the security context, but that is
-a discipline rather than a guarantee: one method written without `AndUsername` and a
-user reads another's data. A Hibernate filter applied automatically is the correct fix
-and is next on the roadmap.
+Tenant isolation is enforced by a Hibernate filter, with one documented gap. A
+`@FilterDef` on the user-owned entities is enabled per request from the security
+context, appending `username = :tenantUsername` to every query Hibernate issues
+against them. This covers HQL, JPQL, criteria queries and collection loads. It does
+not cover `EntityManager.find()`, which Spring Data's inherited `findById`
+delegates to — a primary-key load bypasses filters by design. Request-scoped lookups
+therefore still scope by username explicitly, and each repository exposes a
+`findByIdScoped` JPQL query for cases where a filtered lookup by ID is wanted. This
+limitation was found by a test written specifically to check it, not assumed.
 No token revocation. See above — an accepted trade-off of stateless auth, mitigated
 only by the 60-minute expiry.
 No rate limiting on login. Nothing prevents unlimited password attempts against a
@@ -654,9 +658,9 @@ production system has no such column at alert time; that is the entire difficult
 fraud detection. The column is a property of this being a measurement tool, not a
 feature of the product.
 Tests
-22 unit tests across all four rules, running in well under a second. The rules have no
-framework dependencies — plain Java over an in-memory structure — so tests need no
-application context.
+22 unit tests across all four rules plus four tenant isolation tests, running in well
+under a second. The rules have no framework dependencies — plain Java over an in-memory
+structure — so the rule tests need no application context.
 What they pin:
 Threshold boundaries from both sides, so the suite cannot pass against a rule that
 flags everything.
@@ -680,6 +684,12 @@ It has since caught two refactors' worth of regressions in advance: the `Transac
 change and the `AccountHistory` rewrite both touched the interface, every rule, the replay
 loop, and every test class, and in both cases combined metrics came out identical
 afterwards.
+A separate integration test seeds two tenants against an in-memory H2 database and
+asserts that queries under one tenant cannot see the other's rows. One of its assertions
+deliberately documents a failure of the filter — `findById` returning another tenant's
+row — because pinning a known gap is more useful than a suite that passes for reasons
+nobody checked. That gap was found by writing the test, not by reading the
+documentation.
 The ingestion layer is not covered. Value coercion is the obvious gap — eleven date
 formats and the European decimal disambiguation are exactly the kind of logic that looks
 right and is not. Those tests are next.
@@ -713,8 +723,6 @@ reasoned trade-off, not a claim that rules are better.
 bounded replay; the uploaded-file path uses the same structure and inherits the same
 ceiling on accounts, though not on transactions.
 Roadmap
-Tenant isolation enforced structurally via a Hibernate filter, with a test proving one
-user cannot read another's data
 Upload and column-mapping interface
 Run comparison — diff two configurations across precision, recall, and per-rule firing
 counts

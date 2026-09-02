@@ -1,6 +1,9 @@
 package com.hassan.anomaly;
 
 import java.time.Instant;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -12,6 +15,10 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "replay_run")
+@FilterDef(
+	    name = "tenantFilter",
+	    parameters = @ParamDef(name = "tenantUsername", type = String.class))
+	@Filter(name = "tenantFilter", condition = "username = :tenantUsername")
 public class ReplayRun {
 
     @Id
