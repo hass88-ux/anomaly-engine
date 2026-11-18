@@ -26,8 +26,9 @@ starts the service.
 Engine tagged `v1-engine`. REST API with MySQL persistence, JWT
 authentication and Hibernate-enforced tenant isolation. React interface covering rule
 tuning, generated runs, CSV upload with column mapping and live progress, alert review,
-and replay comparison. A dedicated Neon PostgreSQL project is provisioned for
-Anomaly Engine. The hosted API cutover is pending.
+and replay comparison. The hosted API runs on Render and uses a dedicated Neon
+PostgreSQL database. Existing accounts, alert reviews, and analysis history were
+migrated from Aiven MySQL.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
