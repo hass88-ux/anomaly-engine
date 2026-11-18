@@ -979,15 +979,16 @@ connection settings in the backend environment:
 | Setting | Value |
 | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | `postgres` locally, or `prod,postgres` for a deployment |
-| `DB_URL` | `jdbc:postgresql://<neon-host>/anomaly_engine?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory` |
-| `DB_USERNAME` | Neon database role |
-| `DB_PASSWORD` | Neon database role password |
+| `NEON_DB_URL` | `jdbc:postgresql://<neon-host>/anomaly_engine?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory` |
+| `NEON_DB_USERNAME` | Neon database role |
+| `NEON_DB_PASSWORD` | Neon database role password |
 | `JWT_SECRET` | An application signing secret of at least 32 bytes |
 
 The dedicated Neon database was initialized with the schema generated from the
-Java models. Set `DDL_AUTO=validate` when connecting to it. For a separate,
-disposable database, Spring Boot can initialize empty tables with `DDL_AUTO=update`.
-Moving existing MySQL accounts, review notes, and run history requires a data import.
+Java models. The PostgreSQL profile validates the existing schema on startup.
+For a separate, disposable database, Spring Boot can initialize empty tables with
+`NEON_DDL_AUTO=update`. The Aiven accounts, alert reviews, replays, analysis jobs,
+and job alerts were imported into Neon on November 18, 2026.
 
 For the Render build, the API and frontend ship as a single artifact. `mvn package` runs the Vite
 build through the frontend-maven-plugin and copies `frontend/dist` into the JAR's static
