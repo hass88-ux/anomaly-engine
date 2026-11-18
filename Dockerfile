@@ -16,4 +16,5 @@ WORKDIR /app
 COPY --from=build /app/target/Anomaly_Engine-0.0.1-SNAPSHOT.jar app.jar
 
 EXPOSE 8080
-ENTRYPOINT ["java", "-Dspring.profiles.active=prod", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
+ENV SPRING_PROFILES_ACTIVE=prod
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]

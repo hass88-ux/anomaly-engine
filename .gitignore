@@ -11,3 +11,4 @@ frontend/dist
 frontend/node/
 frontend/dist/
 frontend/node_modules/
+.vercel/

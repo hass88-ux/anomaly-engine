@@ -29,7 +29,7 @@ async function request(path, options = {}) {
   }
 
   const text = await response.text();
-  const body = text ? JSON.parse(text) : null;
+  const body = parseResponse(text, response);
 
   if (!response.ok) {
     throw new Error(body?.error || `Request failed (${response.status})`);
@@ -90,7 +90,7 @@ export async function uploadFile(file) {
   }
 
   const text = await response.text();
-  const body = text ? JSON.parse(text) : null;
+  const body = parseResponse(text, response);
 
   if (!response.ok) {
     throw new Error(body?.error || `Upload failed (${response.status})`);
@@ -104,6 +104,25 @@ export function startAnalysis(uploadId, request_) {
     method: "POST",
     body: JSON.stringify(request_),
   });
+}
+
+function parseResponse(text, response) {
+  if (response.status >= 502 && response.status <= 504) {
+    throw new Error("The engine is temporarily unavailable. Try again shortly.");
+  }
+  if (!text) return null;
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    if (response.ok) throw new Error("The engine returned an unexpected response.");
+    return null;
+  }
+  if (body?.fieldErrors) {
+    throw new Error(Object.entries(body.fieldErrors)
+      .map(([field, message]) => field + " " + message).join(". "));
+  }
+  return body;
 }
 
 export function fetchJob(id) {

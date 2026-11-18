@@ -8,7 +8,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 @Entity
@@ -42,7 +41,6 @@ public class JobAlert {
     @Column(name = "any_actually_fraud")
     private Boolean anyActuallyFraud;
 
-    @Lob
     @Column(name = "detail_json", columnDefinition = "TEXT", nullable = false)
     private String detailJson;
 

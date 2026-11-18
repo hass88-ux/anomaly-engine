@@ -13,7 +13,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 @Entity
@@ -80,11 +79,9 @@ public class AnalysisJob {
     @Column(name = "recall_score")
     private Double recall;
 
-    @Lob
     @Column(name = "config_json", columnDefinition = "TEXT")
     private String configJson;
 
-    @Lob
     @Column(name = "errors_json", columnDefinition = "TEXT")
     private String errorsJson;
 

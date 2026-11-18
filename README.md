@@ -16,16 +16,18 @@ rate. Replays 148,000 transactions in 600ms.
 20,195 transactions written by a different program with different fraud shapes,
 amount distributions, and geography.
 
-**Live:** [anomaly-engine-nzlk.onrender.com](https://anomaly-engine-nzlk.onrender.com)
-Hosted on Render's free tier, so the first request after a period of inactivity takes
-around 50 seconds while the container starts. Sign in with the demo account for a
-populated alert queue, or upload your own CSV.
+**Web app** · [Anomaly Engine on Vercel](https://anomaly-engine.vercel.app)
+
+Vercel serves the React dashboard. Sign-in, uploads, and replays use the Spring Boot
+API on Render. The first API request after inactivity can take longer while Render
+starts the service.
 
 ## Status
-Complete and deployed. Engine tagged `v1-engine`. REST API with MySQL persistence, JWT
+Engine tagged `v1-engine`. REST API with MySQL persistence, JWT
 authentication and Hibernate-enforced tenant isolation. React interface covering rule
 tuning, generated runs, CSV upload with column mapping and live progress, alert review,
-and history. Running on Render against a managed Aiven MySQL instance.
+and replay comparison. A dedicated Neon PostgreSQL project is provisioned for
+Anomaly Engine. The hosted API cutover is pending.
 
 ## Why synthetic data
 Real fraud labels arrive weeks late via chargebacks, so a live system cannot measure
@@ -122,9 +124,9 @@ threshold. The rule never fired, by design. The threshold was calibrated against
 generator planting intercontinental hops; the new file plants domestic ones.
 
 Nothing is broken. The configuration is wrong for that data, and the engine has no way
-to tell the operator so. This is the clearest argument for the run-comparison feature
-on the roadmap: a tunable detector with no way to compare configurations against a
-given dataset is a tool that can be silently misconfigured.
+to tell the operator so. Use **History → Compare rule settings** to see how precision,
+recall, and false alarms change across generated replays with the same seed, account
+count, and number of days. The comparison uses saved replay history.
 
 ### Rule contributions
 
@@ -951,15 +953,43 @@ untested.
 
 ## Roadmap
 - S3-backed upload storage, removing the ephemeral-disk limitation
-- Run comparison — diff two configurations across precision, recall, and per-rule firing
-  counts
+- Compare detector settings across repeated uploads of the same CSV
 - Parser and column-detector test coverage
 - Persist the active job across a page refresh
 - CI running the test suite on every push
 
 ## Deployment
 
-The application and the frontend ship as a single artifact. `mvn package` runs the Vite
+Deploy `frontend/` as a Vite project on Vercel. For a Git integration, set the
+Vercel project root directory to `frontend`. For a CLI deploy, run
+`vercel deploy --prod` from `frontend/`.
+
+`frontend/vercel.json` forwards `/api/*` to Render and routes React deep links to
+the Vite entry point. Keep `VITE_API_BASE` unset to use same-origin requests.
+Update the rewrite if the API hostname changes. Verify `/login` serves the app and
+`/api/health` returns `Engine is up` before checking sign-in or CSV uploads.
+Database and JWT secrets belong in the Spring Boot hosting environment.
+
+### Neon PostgreSQL
+
+The `anomaly-engine` Neon project has its own `anomaly_engine` database.
+Use the direct Neon endpoint for schema initialization, and store the
+connection settings in the backend environment:
+
+| Setting | Value |
+| --- | --- |
+| `SPRING_PROFILES_ACTIVE` | `postgres` locally, or `prod,postgres` for a deployment |
+| `DB_URL` | `jdbc:postgresql://<neon-host>/anomaly_engine?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory` |
+| `DB_USERNAME` | Neon database role |
+| `DB_PASSWORD` | Neon database role password |
+| `JWT_SECRET` | An application signing secret of at least 32 bytes |
+
+The dedicated Neon database was initialized with the schema generated from the
+Java models. Set `DDL_AUTO=validate` when connecting to it. For a separate,
+disposable database, Spring Boot can initialize empty tables with `DDL_AUTO=update`.
+Moving existing MySQL accounts, review notes, and run history requires a data import.
+
+For the Render build, the API and frontend ship as a single artifact. `mvn package` runs the Vite
 build through the frontend-maven-plugin and copies `frontend/dist` into the JAR's static
 resources, so Spring serves both the API and the interface from one origin. This removes
 CORS from the deployed system entirely — the configuration is retained and externalised
@@ -986,8 +1016,8 @@ the first attempt to run the packaged JAR failed on a missing `jwt.secret` place
 which is exactly the failure that should happen.
 
 ## Stack
-Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Security, Spring Data JPA, MySQL 8,
-Apache Commons CSV, React 18, Vite, React Router.
+Java 21, Maven, JUnit 5, Spring Boot 3.4, Spring Security, Spring Data JPA, PostgreSQL, MySQL 8,
+Apache Commons CSV, React 19, Vite, React Router.
 
 ## Data
 City data derived from [GeoNames](https://www.geonames.org/), licensed under
@@ -1011,10 +1041,21 @@ Register at `POST /api/auth/register`, then send the returned token as
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Runs on `:5173` and expects the API on `:8080`.
+Open [localhost:5173](http://localhost:5173). Vite forwards `/api` to Spring Boot
+on port 8080. For a disposable local run with no MySQL setup, start the API from
+the repository root with Maven's test classpath and the in-memory H2 profile.
 
-Tests run via `mvn test` or through the IDE.
+```powershell
+mvn '-Dspring-boot.run.profiles=test' '-Dspring-boot.run.useTestClasspath=true' '-Dskip.installnodenpm=true' '-Dskip.npm=true' spring-boot:run
+```
+
+Accounts and run history created with this profile reset when the API restarts.
+In Eclipse, import the repository root as an existing Maven project and run
+`com.hassan.anomaly.AnomalyApplication` with the `local` profile for MySQL.
+
+Run backend tests with `mvn test` or through Eclipse. From `frontend/`, run
+`npm run lint` and `npm run build`.

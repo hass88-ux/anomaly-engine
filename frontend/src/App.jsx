@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Guide from "./pages/Guide";
 import Login from "./Login";
 import Layout from "./Layout";
 import Overview from "./pages/Overview";
-import RunTest from "./pages/RunTest";
 import Upload from "./pages/Upload";
 import Alerts from "./pages/Alerts";
-import Analysis from "./pages/Analysis";
 import History from "./pages/History";
 import Manual from "./pages/Manual";
 import "./App.css";
+
+const RunTest = lazy(() => import("./pages/RunTest"));
+const Analysis = lazy(() => import("./pages/Analysis"));
 
 export default function App() {
   const [username, setUsername] = useState(
@@ -59,11 +60,17 @@ export default function App() {
         <Route element={<Layout username={username} onLogout={logout} />}>
           <Route index element={<Overview username={username} lastResult={lastResult} />} />
           <Route path="run" element={
-            <RunTest onResult={handleResult} params={params} setParams={setParams} />
+            <Suspense fallback={<div className="page" role="status">Loading replay settings…</div>}>
+              <RunTest onResult={handleResult} params={params} setParams={setParams} />
+            </Suspense>
           } />
           <Route path="upload" element={<Upload onJobComplete={handleJobComplete} />} />
-          <Route path="alerts" element={<Alerts lastResult={lastResult} jobId={jobId} />} />
-          <Route path="analysis" element={<Analysis params={params} />} />
+            <Route path="alerts" element={<Alerts key={jobId ?? "replay"} lastResult={lastResult} jobId={jobId} />} />
+          <Route path="analysis" element={
+            <Suspense fallback={<div className="page" role="status">Loading analysis…</div>}>
+              <Analysis params={params} />
+            </Suspense>
+          } />
           <Route path="history" element={<History />} />
           <Route path="manual" element={<Manual />} />
           <Route path="*" element={<Navigate to="/" replace />} />

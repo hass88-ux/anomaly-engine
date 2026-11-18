@@ -34,7 +34,7 @@ export default function Alerts({ lastResult, jobId }) {
 
   const [jobData, setJobData] = useState(null);
   const [jobMeta, setJobMeta] = useState(null);
-  const [loadingJob, setLoadingJob] = useState(false);
+  const [loadingJob, setLoadingJob] = useState(Boolean(jobId));
 
   const [cursor, setCursor] = useState(0);
   const [showKeys, setShowKeys] = useState(false);
@@ -60,14 +60,9 @@ export default function Alerts({ lastResult, jobId }) {
   }, []);
 
   useEffect(() => {
-    if (!jobId) {
-      setJobData(null);
-      setJobMeta(null);
-      return;
-    }
+    if (!jobId) return;
 
     let cancelled = false;
-    setLoadingJob(true);
 
     Promise.all([fetchJobAlerts(jobId), fetchJob(jobId)])
       .then(([alerts, meta]) => {
@@ -230,10 +225,6 @@ export default function Alerts({ lastResult, jobId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor]);
 
-  useEffect(() => {
-    setCursor(0);
-  }, [confidence, statusFilter, jobId]);
-
   if (loadingJob) {
     return (
       <div className="page">
@@ -364,7 +355,7 @@ export default function Alerts({ lastResult, jobId }) {
                   <button
                     key={level}
                     className={confidence === level ? "chip active" : "chip"}
-                    onClick={() => setConfidence(level)}
+                    onClick={() => { setConfidence(level); setCursor(0); }}
                   >
                     {level === "ALL"
                       ? `All (${all.length})`
@@ -379,7 +370,7 @@ export default function Alerts({ lastResult, jobId }) {
               <div className="filters">
                 <button
                   className={statusFilter === "ALL" ? "chip active" : "chip"}
-                  onClick={() => setStatusFilter("ALL")}
+                  onClick={() => { setStatusFilter("ALL"); setCursor(0); }}
                 >
                   All ({all.length})
                 </button>
@@ -387,7 +378,7 @@ export default function Alerts({ lastResult, jobId }) {
                   <button
                     key={s}
                     className={statusFilter === s ? "chip active" : "chip"}
-                    onClick={() => setStatusFilter(s)}
+                    onClick={() => { setStatusFilter(s); setCursor(0); }}
                   >
                     {s} ({statusCounts[s]})
                   </button>

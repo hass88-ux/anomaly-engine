@@ -17,14 +17,11 @@ const FEED = [
 
 export default function Landing() {
   const navigate = useNavigate();
-  const [visible, setVisible] = useState(0);
+  const [reducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [visible, setVisible] = useState(reducedMotion ? FEED.length : 0);
 
   useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) {
-      setVisible(FEED.length);
-      return;
-    }
+    if (reducedMotion) return;
 
     const timer = setInterval(() => {
       setVisible((n) => {
@@ -37,7 +34,7 @@ export default function Landing() {
     }, 420);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [reducedMotion]);
 
   return (
     <div className="landing">
@@ -95,7 +92,7 @@ export default function Landing() {
         <div className="hero-feed" aria-hidden="true">
           <div className="feed-head">
             <span className="dot" />
-            live replay
+            Sample replay
           </div>
 
           <div className="feed-rows">

@@ -29,6 +29,8 @@ const DEFAULT_CONFIG = {
   geoMaxSpeedKmh: 900.0,
 };
 
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 function bytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -51,6 +53,11 @@ export default function Upload({ onJobComplete }) {
 
   async function handleFile(file) {
     if (!file) return;
+
+    if (file.size > MAX_FILE_BYTES) {
+      setError("Choose a CSV that is 25 MB or smaller.");
+      return;
+    }
 
     setError("");
     setStage("uploading");

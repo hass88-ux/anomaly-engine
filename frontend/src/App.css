@@ -821,3 +821,19 @@ kbd {
 .key-list > div:last-child { border-bottom: none; }
 .key-list dt { display: flex; gap: 4px; margin: 0; }
 .key-list dd { margin: 0; font-size: 14px; color: var(--ink-2); }
+.comparison-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.comparison-controls label {
+  display: grid;
+  gap: .4rem;
+  min-width: 0;
+}
+
+.comparison-controls select {
+  width: 100%;
+}
